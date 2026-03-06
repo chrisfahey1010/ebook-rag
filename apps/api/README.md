@@ -9,3 +9,8 @@ uv sync
 uv run uvicorn ebook_rag_api.main:app --reload --app-dir src
 ```
 
+## Available endpoints
+
+- `GET /health`
+- `GET /api/documents`
+- `POST /api/documents/upload`

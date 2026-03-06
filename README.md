@@ -76,17 +76,25 @@ The UI will be available at `http://localhost:3000`.
 
 ## Current status
 
-This step scaffolds the monorepo baseline:
+Current implementation includes:
 
 - local Postgres + `pgvector`
 - FastAPI app with a health endpoint
+- SQLAlchemy database wiring and table initialization
+- PDF upload and file registration endpoints
+- document listing endpoint with ingestion status placeholders
 - Next.js app shell
 - root-level docs for local development
 
 Planned next steps:
 
-- SQLAlchemy models and database wiring
-- PDF upload and file registration
 - PyMuPDF extraction pipeline
 - chunking, embeddings, retrieval, and answer citations
 
+## API snapshot
+
+- `GET /health`
+- `GET /api/documents`
+- `POST /api/documents/upload`
+
+Upload currently registers the PDF, computes its SHA-256 checksum, stores the file locally, creates a queued ingestion job, and returns document metadata. Extraction and indexing are the next milestone.
