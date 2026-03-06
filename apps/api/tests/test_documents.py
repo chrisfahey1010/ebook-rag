@@ -1,7 +1,8 @@
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from pathlib import Path
+from sqlalchemy import func, select
 
-from ebook_rag_api.models import DocumentChunk
+from ebook_rag_api.models import Document, DocumentChunk, DocumentPage, IngestionJob
 
 
 def test_upload_extracts_pages_and_completes_ingestion(
@@ -133,3 +134,60 @@ def test_get_document_returns_extracted_metadata(
     assert payload["status"] == "ready"
     assert payload["page_count"] == 2
     assert payload["chunk_count"] >= 1
+
+
+def test_delete_document_removes_database_records_and_uploaded_file(
+    client: TestClient, pdf_factory, session_factory
+) -> None:
+    upload_response = client.post(
+        "/api/documents/upload",
+        files={
+            "file": (
+                "sample.pdf",
+                pdf_factory(
+                    [
+                        "Intro paragraph\n\n" + "gamma " * 140,
+                        "Follow-up paragraph\n\n" + "delta " * 140,
+                    ]
+                ),
+                "application/pdf",
+            )
+        },
+    )
+
+    assert upload_response.status_code == 201
+    payload = upload_response.json()
+    document_id = payload["document"]["id"]
+    stored_path = payload["document"]["filename"]
+
+    with session_factory() as session:
+        document = session.scalar(select(Document).where(Document.id == document_id))
+        assert document is not None
+        file_path = document.file_path
+
+    response = client.delete(f"/api/documents/{document_id}")
+
+    assert response.status_code == 204
+    assert response.content == b""
+
+    with session_factory() as session:
+        assert session.scalar(select(Document).where(Document.id == document_id)) is None
+        assert session.scalar(
+            select(func.count()).select_from(DocumentChunk).where(DocumentChunk.document_id == document_id)
+        ) == 0
+        assert session.scalar(
+            select(func.count()).select_from(DocumentPage).where(DocumentPage.document_id == document_id)
+        ) == 0
+        assert session.scalar(
+            select(func.count()).select_from(IngestionJob).where(IngestionJob.document_id == document_id)
+        ) == 0
+
+    assert not Path(file_path).exists()
+    assert stored_path.endswith(".pdf")
+
+
+def test_delete_document_returns_not_found_for_unknown_id(client: TestClient) -> None:
+    response = client.delete("/api/documents/missing-document")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Document not found."

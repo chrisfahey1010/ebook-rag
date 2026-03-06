@@ -126,10 +126,12 @@ export default function Home() {
   const [lastUploadMessage, setLastUploadMessage] = useState<string | null>(null);
   const [answer, setAnswer] = useState<QAResponse | null>(null);
   const [retrievalResult, setRetrievalResult] = useState<RetrievalResponse | null>(null);
+  const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
   const [isLoadingDocuments, setIsLoadingDocuments] = useState(true);
   const [isUploading, startUploadTransition] = useTransition();
   const [isAnswering, startAnswerTransition] = useTransition();
   const [isInspecting, startInspectTransition] = useTransition();
+  const [isDeleting, startDeleteTransition] = useTransition();
 
   const selectedDocument =
     documents.find((document) => document.id === selectedDocumentId) ?? null;
@@ -306,6 +308,66 @@ export default function Home() {
     });
   }
 
+  function handleDeleteDocument(document: DocumentSummary) {
+    if (deletingDocumentId) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete ${formatDocumentLabel(document)}? This removes the uploaded PDF and all indexed data.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setLibraryError(null);
+    setDeletingDocumentId(document.id);
+
+    startDeleteTransition(async () => {
+      try {
+        const response = await fetch(
+          `${apiBaseUrl}/api/documents/${document.id}`,
+          {
+            method: "DELETE",
+          },
+        );
+
+        if (!response.ok) {
+          throw new Error(await parseApiError(response));
+        }
+
+        setDocuments((current) => {
+          const nextDocuments = current.filter(
+            (currentDocument) => currentDocument.id !== document.id,
+          );
+          setSelectedDocumentId((currentSelectedId) => {
+            if (currentSelectedId !== document.id) {
+              return currentSelectedId;
+            }
+            return nextDocuments[0]?.id ?? "";
+          });
+          return nextDocuments;
+        });
+
+        if (selectedDocumentId === document.id) {
+          setAnswer(null);
+          setRetrievalResult(null);
+          setQaError(null);
+          setRetrievalError(null);
+          setQuestion("");
+        }
+
+        setLastUploadMessage(`Deleted ${document.original_filename}.`);
+      } catch (error) {
+        setLibraryError(
+          error instanceof Error ? error.message : "Delete failed.",
+        );
+      } finally {
+        setDeletingDocumentId(null);
+      }
+    });
+  }
+
   return (
     <main className="min-h-screen px-4 py-6 md:px-8 md:py-8 lg:px-12">
       <section className="mx-auto flex max-w-7xl flex-col gap-6">
@@ -430,18 +492,12 @@ export default function Home() {
 
                 {documents.map((document) => {
                   const selected = document.id === selectedDocumentId;
+                  const isDeletingThisDocument =
+                    deletingDocumentId === document.id && isDeleting;
 
                   return (
-                    <button
+                    <article
                       key={document.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedDocumentId(document.id);
-                        setAnswer(null);
-                        setQaError(null);
-                        setRetrievalResult(null);
-                        setRetrievalError(null);
-                      }}
                       className={`rounded-[1.2rem] border px-4 py-4 text-left transition ${
                         selected
                           ? "border-[var(--accent)] bg-white shadow-[0_16px_32px_rgba(63,42,29,0.08)]"
@@ -449,19 +505,40 @@ export default function Home() {
                       }`}
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedDocumentId(document.id);
+                            setAnswer(null);
+                            setQaError(null);
+                            setRetrievalResult(null);
+                            setRetrievalError(null);
+                          }}
+                          className="min-w-0 flex-1 text-left"
+                        >
                           <p className="truncate text-base font-medium">
                             {formatDocumentLabel(document)}
                           </p>
                           <p className="mt-1 truncate text-sm text-[var(--muted)]">
                             {document.original_filename}
                           </p>
+                        </button>
+
+                        <div className="flex items-start gap-2">
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-medium uppercase tracking-[0.16em] ${statusTone(document.status)}`}
+                          >
+                            {document.status}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteDocument(document)}
+                            disabled={isDeletingThisDocument}
+                            className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-medium uppercase tracking-[0.16em] text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {isDeletingThisDocument ? "Deleting..." : "Delete"}
+                          </button>
                         </div>
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs font-medium uppercase tracking-[0.16em] ${statusTone(document.status)}`}
-                        >
-                          {document.status}
-                        </span>
                       </div>
 
                       <dl className="mt-4 grid grid-cols-2 gap-3 text-sm text-[var(--muted)]">
@@ -478,7 +555,7 @@ export default function Home() {
                           </dd>
                         </div>
                       </dl>
-                    </button>
+                    </article>
                   );
                 })}
               </div>

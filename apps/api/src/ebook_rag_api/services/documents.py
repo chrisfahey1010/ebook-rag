@@ -151,3 +151,10 @@ def get_document(session: Session, document_id: str) -> Document | None:
 def list_documents(session: Session) -> list[Document]:
     statement = select(Document).order_by(Document.created_at.desc())
     return list(session.scalars(statement))
+
+
+def delete_document(session: Session, document: Document) -> None:
+    file_path = Path(document.file_path)
+    session.delete(document)
+    session.commit()
+    file_path.unlink(missing_ok=True)

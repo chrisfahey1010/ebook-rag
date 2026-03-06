@@ -6,6 +6,7 @@ from ebook_rag_api.db import get_db_session
 from ebook_rag_api.schemas import DocumentSummary, DocumentUploadResponse
 from ebook_rag_api.services.documents import (
     create_document_record,
+    delete_document,
     get_document,
     list_documents,
     store_pdf_upload,
@@ -60,3 +61,18 @@ def upload_document(
         ingestion_status=ingestion_job.status,
         ingestion_error=ingestion_job.error_message,
     )
+
+
+@router.delete(
+    "/{document_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete an uploaded document and its indexed content",
+)
+def delete_document_by_id(
+    document_id: str, session: Session = Depends(get_db_session)
+) -> None:
+    document = get_document(session, document_id)
+    if document is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
+
+    delete_document(session, document)

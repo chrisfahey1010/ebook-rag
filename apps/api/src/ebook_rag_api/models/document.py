@@ -29,7 +29,12 @@ class Document(Base):
         onupdate=lambda: datetime.now(UTC),
     )
 
-    ingestion_jobs = relationship("IngestionJob", back_populates="document")
+    ingestion_jobs = relationship(
+        "IngestionJob",
+        back_populates="document",
+        cascade="all, delete-orphan",
+        order_by="IngestionJob.created_at",
+    )
     pages = relationship(
         "DocumentPage",
         back_populates="document",

@@ -92,6 +92,7 @@ Current implementation includes:
 - chunk embeddings generated during ingestion
 - document ingestion statuses with chunk metadata
 - document listing and detail endpoints
+- document deletion endpoint that also removes uploaded PDFs
 - PostgreSQL `pgvector` storage for chunk embeddings
 - dense retrieval executed in the database
 - grounded question answering with citations
@@ -110,6 +111,7 @@ Current limitations:
 - `GET /health`
 - `GET /api/documents`
 - `GET /api/documents/{document_id}`
+- `DELETE /api/documents/{document_id}`
 - `POST /api/documents/upload`
 - `POST /api/retrieval/search`
 - `POST /api/qa/ask`
