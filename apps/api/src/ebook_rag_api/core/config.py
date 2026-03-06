@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     embedding_provider: str = "hashing"
     embedding_dimensions: int = 128
     answer_provider: str = "extractive"
+    llm_base_url: str = "http://localhost:11434/v1"
+    llm_api_key: str = "not-needed"
+    llm_model: str = "llama3.2"
+    llm_timeout_seconds: float = 30.0
+    llm_temperature: float = 0.0
+    llm_max_tokens: int = 400
 
     model_config = SettingsConfigDict(
         env_file=".env",
