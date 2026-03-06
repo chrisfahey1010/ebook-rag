@@ -6,6 +6,7 @@ import fitz
 from sqlalchemy.orm import Session
 
 from ebook_rag_api.models import Document, DocumentPage, IngestionJob
+from ebook_rag_api.services.embeddings import get_embedding_provider
 from ebook_rag_api.services.chunking import build_document_chunks
 
 WHITESPACE_RE = re.compile(r"[ \t]+")
@@ -64,6 +65,12 @@ def run_extraction_pipeline(
     document.chunks.clear()
     for chunk in build_document_chunks(document.pages):
         document.chunks.append(chunk)
+
+    provider = get_embedding_provider()
+    chunk_embeddings = provider.embed_texts([chunk.text for chunk in document.chunks])
+    for chunk, embedding in zip(document.chunks, chunk_embeddings, strict=True):
+        chunk.embedding_dimensions = provider.dimensions
+        chunk.embedding_vector = embedding
 
     document.page_count = page_count
     document.status = "ready"

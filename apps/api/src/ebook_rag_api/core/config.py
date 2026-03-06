@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./ebook_rag.db"
     uploads_dir: Path = Path("data/uploads")
     max_upload_size_mb: int = 50
+    embedding_provider: str = "hashing"
+    embedding_dimensions: int = 128
 
     model_config = SettingsConfigDict(
         env_file=".env",
