@@ -39,6 +39,7 @@ def test_qa_answer_returns_grounded_answer_with_citations(
     assert payload["citations"]
     assert payload["citations"][0]["document_id"] == document_id
     assert payload["citations"][0]["page_start"] == 1
+    assert "charge the rover battery" in payload["citations"][0]["text"].lower()
     assert payload["retrieved_chunk_count"] >= 1
 
 

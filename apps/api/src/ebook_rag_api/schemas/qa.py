@@ -15,6 +15,7 @@ class QACitation(BaseModel):
     chunk_index: int
     page_start: int
     page_end: int
+    text: str
     score: float
 
 

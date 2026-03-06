@@ -31,6 +31,7 @@ def answer_question(
                 chunk_index=context.chunk_index,
                 page_start=context.page_start,
                 page_end=context.page_end,
+                text=context.text,
                 score=context.score,
             )
             for context in answer.citations

@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     app_env: str = "development"
     app_host: str = "0.0.0.0"
     app_port: int = 8000
+    cors_allowed_origins: list[str] = ["http://localhost:3000"]
     database_url: str = "sqlite:///./ebook_rag.db"
     uploads_dir: Path = Path("data/uploads")
     max_upload_size_mb: int = 50
