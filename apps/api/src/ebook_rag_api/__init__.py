@@ -1,0 +1,2 @@
+"""ebook-rag API package."""
+

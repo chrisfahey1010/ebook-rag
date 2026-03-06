@@ -1,0 +1,29 @@
+[project]
+name = "ebook-rag-api"
+version = "0.1.0"
+description = "FastAPI backend for the ebook-rag project."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.116.0,<1.0.0",
+  "pydantic-settings>=2.10.0,<3.0.0",
+  "uvicorn[standard]>=0.35.0,<1.0.0"
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.28.0,<1.0.0",
+  "pytest>=8.4.0,<9.0.0"
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ebook_rag_api"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
