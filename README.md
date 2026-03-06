@@ -96,13 +96,14 @@ Current implementation includes:
 - dense retrieval executed in the database
 - grounded question answering with citations
 - pluggable QA providers, including a local extractive fallback and an OpenAI-compatible adapter
-- Next.js document library, upload flow, QA workspace, and citation preview pane
+- retrieval debug route and browser-side candidate inspector
+- Next.js document library, upload flow, QA workspace, citation preview pane, and retrieval inspector
 - root-level docs for local development
 
 Current limitations:
 
-- retrieval is dense-only today; reranking and debug views are still pending
-- document source preview currently uses cited chunk text returned by the QA endpoint rather than a dedicated debug/source API
+- retrieval is dense-only today; reranking is still pending
+- the debug surface currently covers ranked retrieval candidates, but not reranker scores or final prompt context yet
 
 ## API snapshot
 
@@ -112,12 +113,15 @@ Current limitations:
 - `POST /api/documents/upload`
 - `POST /api/retrieval/search`
 - `POST /api/qa/ask`
+- `POST /api/debug/retrieve`
 
 Upload registers the PDF, computes its SHA-256 checksum, stores the file locally, extracts per-page text with PyMuPDF, builds paragraph-aware chunks with page spans and token estimates, generates embeddings, persists the records, and returns document plus ingestion status metadata.
 
 Retrieval accepts a natural-language query, embeds it, scores persisted chunks, and returns ranked matches with document metadata, page spans, and similarity scores.
 
 QA builds on retrieval and returns a grounded answer plus structured citations. The default local answerer is conservative and can decline to answer when the indexed content does not provide enough support. A configurable OpenAI-compatible provider path is also available for model-backed generation.
+
+Debug retrieval exposes the ranked candidate list directly so the frontend can show what the retriever selected before answer generation.
 
 ## Next implementation plan
 

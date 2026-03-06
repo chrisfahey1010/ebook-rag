@@ -45,6 +45,23 @@ type QAResponse = {
   retrieved_chunk_count: number;
 };
 
+type RetrievalMatch = {
+  chunk_id: string;
+  document_id: string;
+  document_title: string | null;
+  document_filename: string;
+  chunk_index: number;
+  page_start: number;
+  page_end: number;
+  text: string;
+  score: number;
+};
+
+type RetrievalResponse = {
+  normalized_query: string;
+  matches: RetrievalMatch[];
+};
+
 function statusTone(status: string): string {
   if (status === "ready") {
     return "bg-emerald-100 text-emerald-800";
@@ -75,6 +92,29 @@ async function parseApiError(response: Response): Promise<string> {
   }
 }
 
+async function fetchRetrieval(
+  query: string,
+  documentId: string,
+): Promise<RetrievalResponse> {
+  const response = await fetch(`${apiBaseUrl}/api/debug/retrieve`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      query,
+      document_id: documentId,
+      top_k: 5,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+
+  return (await response.json()) as RetrievalResponse;
+}
+
 export default function Home() {
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   const [selectedDocumentId, setSelectedDocumentId] = useState<string>("");
@@ -82,11 +122,14 @@ export default function Home() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [qaError, setQaError] = useState<string | null>(null);
+  const [retrievalError, setRetrievalError] = useState<string | null>(null);
   const [lastUploadMessage, setLastUploadMessage] = useState<string | null>(null);
   const [answer, setAnswer] = useState<QAResponse | null>(null);
+  const [retrievalResult, setRetrievalResult] = useState<RetrievalResponse | null>(null);
   const [isLoadingDocuments, setIsLoadingDocuments] = useState(true);
   const [isUploading, startUploadTransition] = useTransition();
   const [isAnswering, startAnswerTransition] = useTransition();
+  const [isInspecting, startInspectTransition] = useTransition();
 
   const selectedDocument =
     documents.find((document) => document.id === selectedDocumentId) ?? null;
@@ -172,6 +215,8 @@ export default function Home() {
         setDocuments((current) => [payload.document, ...current]);
         setSelectedDocumentId(payload.document.id);
         setAnswer(null);
+        setRetrievalResult(null);
+        setRetrievalError(null);
         setQuestion("");
         setLastUploadMessage(
           payload.ingestion_status === "completed"
@@ -201,29 +246,62 @@ export default function Home() {
     }
 
     setQaError(null);
+    setRetrievalError(null);
+    const trimmedQuestion = question.trim();
 
     startAnswerTransition(async () => {
       try {
-        const response = await fetch(`${apiBaseUrl}/api/qa/ask`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            question,
-            document_id: selectedDocumentId,
-            top_k: 5,
+        const [retrievalPayload, qaResponse] = await Promise.all([
+          fetchRetrieval(trimmedQuestion, selectedDocumentId),
+          fetch(`${apiBaseUrl}/api/qa/ask`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              question: trimmedQuestion,
+              document_id: selectedDocumentId,
+              top_k: 5,
+            }),
           }),
-        });
+        ]);
 
-        if (!response.ok) {
-          throw new Error(await parseApiError(response));
+        if (!qaResponse.ok) {
+          throw new Error(await parseApiError(qaResponse));
         }
+        const qaPayload = (await qaResponse.json()) as QAResponse;
 
-        const payload = (await response.json()) as QAResponse;
-        setAnswer(payload);
+        setRetrievalResult(retrievalPayload);
+        setAnswer(qaPayload);
       } catch (error) {
         setQaError(error instanceof Error ? error.message : "Question failed.");
+      }
+    });
+  }
+
+  function inspectRetrieval() {
+    if (!selectedDocumentId) {
+      setRetrievalError("Select a document before inspecting retrieval.");
+      return;
+    }
+
+    if (!question.trim()) {
+      setRetrievalError("Enter a question first.");
+      return;
+    }
+
+    setQaError(null);
+    setRetrievalError(null);
+    const trimmedQuestion = question.trim();
+
+    startInspectTransition(async () => {
+      try {
+        const payload = await fetchRetrieval(trimmedQuestion, selectedDocumentId);
+        setRetrievalResult(payload);
+      } catch (error) {
+        setRetrievalError(
+          error instanceof Error ? error.message : "Retrieval inspection failed.",
+        );
       }
     });
   }
@@ -361,6 +439,8 @@ export default function Home() {
                         setSelectedDocumentId(document.id);
                         setAnswer(null);
                         setQaError(null);
+                        setRetrievalResult(null);
+                        setRetrievalError(null);
                       }}
                       className={`rounded-[1.2rem] border px-4 py-4 text-left transition ${
                         selected
@@ -435,7 +515,12 @@ export default function Home() {
                   value={question}
                   onChange={(event) => setQuestion(event.target.value)}
                   rows={4}
-                  disabled={!selectedDocument || selectedDocument.status !== "ready" || isAnswering}
+                  disabled={
+                    !selectedDocument ||
+                    selectedDocument.status !== "ready" ||
+                    isAnswering ||
+                    isInspecting
+                  }
                   placeholder="What does this document say about battery care, architecture decisions, or a specific topic?"
                   className="w-full rounded-[1.25rem] border border-[var(--border)] bg-white/80 px-4 py-4 text-base outline-none transition placeholder:text-[var(--muted)] focus:border-[var(--accent)]"
                 />
@@ -445,13 +530,33 @@ export default function Home() {
                       ? "This document failed ingestion and cannot be queried."
                       : "Questions are limited to the currently selected document."}
                   </p>
-                  <button
-                    type="submit"
-                    disabled={!selectedDocument || selectedDocument.status !== "ready" || isAnswering}
-                    className="rounded-full bg-[var(--foreground)] px-5 py-3 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {isAnswering ? "Searching and answering..." : "Ask question"}
-                  </button>
+                  <div className="flex flex-col gap-3 sm:flex-row">
+                    <button
+                      type="button"
+                      onClick={inspectRetrieval}
+                      disabled={
+                        !selectedDocument ||
+                        selectedDocument.status !== "ready" ||
+                        isAnswering ||
+                        isInspecting
+                      }
+                      className="rounded-full border border-[var(--border)] bg-white/80 px-5 py-3 text-sm font-medium text-[var(--foreground)] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isInspecting ? "Inspecting..." : "Inspect retrieval"}
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={
+                        !selectedDocument ||
+                        selectedDocument.status !== "ready" ||
+                        isAnswering ||
+                        isInspecting
+                      }
+                      className="rounded-full bg-[var(--foreground)] px-5 py-3 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isAnswering ? "Searching and answering..." : "Ask question"}
+                    </button>
+                  </div>
                 </div>
               </form>
 
@@ -460,9 +565,14 @@ export default function Home() {
                   {qaError}
                 </p>
               ) : null}
+              {retrievalError ? (
+                <p className="mt-4 rounded-[1rem] bg-rose-50 px-4 py-3 text-sm text-rose-800">
+                  {retrievalError}
+                </p>
+              ) : null}
             </section>
 
-            <section className="grid gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+            <section className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.8fr)_minmax(320px,0.95fr)]">
               <article className="rounded-[1.6rem] border border-[var(--border)] bg-[var(--surface)] p-6">
                 <div className="flex items-end justify-between gap-4">
                   <div>
@@ -571,6 +681,73 @@ export default function Home() {
                         </p>
                       </article>
                     ))}
+                  </div>
+                )}
+              </aside>
+
+              <aside className="rounded-[1.6rem] border border-[var(--border)] bg-[var(--surface)] p-6">
+                <p className="text-xs uppercase tracking-[0.24em] text-[var(--muted)]">
+                  Retrieval debug
+                </p>
+                <h3 className="mt-2 text-2xl">Candidate ranking</h3>
+
+                {!retrievalResult ? (
+                  <p className="mt-5 rounded-[1.2rem] border border-dashed border-[var(--border)] px-4 py-5 text-sm leading-6 text-[var(--muted)]">
+                    Run retrieval inspection to see the ranked candidates that
+                    the current retriever returns for this question.
+                  </p>
+                ) : (
+                  <div className="mt-5 space-y-4">
+                    <div className="rounded-[1.1rem] border border-[var(--border)] bg-white/60 px-4 py-4">
+                      <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+                        Normalized query
+                      </p>
+                      <p className="mt-2 text-sm leading-6">
+                        {retrievalResult.normalized_query}
+                      </p>
+                    </div>
+
+                    <div className="flex max-h-[42rem] flex-col gap-4 overflow-y-auto pr-1">
+                      {retrievalResult.matches.map((match, index) => (
+                        <article
+                          key={match.chunk_id}
+                          className="rounded-[1.2rem] border border-[var(--border)] bg-white/70 p-4"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-medium">
+                                {match.document_title || match.document_filename}
+                              </p>
+                              <p className="mt-1 text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
+                                Rank {index + 1}
+                              </p>
+                            </div>
+                            <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-medium text-stone-700">
+                              {match.score.toFixed(3)}
+                            </span>
+                          </div>
+
+                          <dl className="mt-4 grid grid-cols-2 gap-3 text-sm text-[var(--muted)]">
+                            <div>
+                              <dt>Pages</dt>
+                              <dd className="mt-1 text-[var(--foreground)]">
+                                {formatPageRange(match.page_start, match.page_end)}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>Chunk</dt>
+                              <dd className="mt-1 text-[var(--foreground)]">
+                                #{match.chunk_index}
+                              </dd>
+                            </div>
+                          </dl>
+
+                          <p className="mt-4 text-sm leading-7 text-[var(--foreground)]">
+                            {match.text}
+                          </p>
+                        </article>
+                      ))}
+                    </div>
                   </div>
                 )}
               </aside>

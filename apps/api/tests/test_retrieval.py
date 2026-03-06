@@ -128,3 +128,43 @@ def test_retrieval_search_can_filter_to_a_document(
     assert payload["matches"]
     assert all(match["document_id"] == alpha_document_id for match in payload["matches"])
     assert all(match["document_id"] != beta_document_id for match in payload["matches"])
+
+
+def test_debug_retrieve_returns_ranked_candidates_for_workspace_inspection(
+    client: TestClient, pdf_factory
+) -> None:
+    upload_response = client.post(
+        "/api/documents/upload",
+        files={
+            "file": (
+                "manual.pdf",
+                pdf_factory(
+                    [
+                        "Operations\n\nInspect the seals before the vehicle leaves the hangar.",
+                        "Maintenance\n\nRecharge the auxiliary battery after each field day.",
+                    ]
+                ),
+                "application/pdf",
+            )
+        },
+    )
+
+    assert upload_response.status_code == 201
+    document_id = upload_response.json()["document"]["id"]
+
+    response = client.post(
+        "/api/debug/retrieve",
+        json={
+            "query": "What should happen before the vehicle leaves the hangar?",
+            "document_id": document_id,
+            "top_k": 4,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["normalized_query"] == "What should happen before the vehicle leaves the hangar?"
+    assert payload["matches"]
+    assert payload["matches"][0]["document_id"] == document_id
+    assert "inspect the seals" in payload["matches"][0]["text"].lower()
+    assert payload["matches"][0]["score"] >= payload["matches"][-1]["score"]
