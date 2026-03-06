@@ -13,4 +13,5 @@ build/
 node_modules/
 .next/
 *.pyc
-
+*.db
+apps/api/data/uploads/
