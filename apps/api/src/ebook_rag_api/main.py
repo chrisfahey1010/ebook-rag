@@ -4,24 +4,22 @@ from fastapi import FastAPI
 
 from ebook_rag_api.api.router import api_router
 from ebook_rag_api.core.config import get_settings
-from ebook_rag_api.db import Base, get_engine
-from ebook_rag_api.models import Document, DocumentChunk, DocumentPage, IngestionJob
+from ebook_rag_api.db.vector import EMBEDDING_DIMENSIONS
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings = get_settings()
     settings.uploads_dir.mkdir(parents=True, exist_ok=True)
-
-    # Importing model modules before metadata creation keeps table registration
-    # explicit while avoiding implicit import side effects elsewhere.
-    _ = (Document, DocumentChunk, DocumentPage, IngestionJob)
-    Base.metadata.create_all(bind=get_engine())
     yield
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    if settings.embedding_dimensions != EMBEDDING_DIMENSIONS:
+        raise ValueError(
+            "The configured embedding dimensions do not match the current pgvector schema."
+        )
 
     # Keeping construction in a factory makes later test setup and settings
     # overrides straightforward without introducing framework-heavy patterns.

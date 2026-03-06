@@ -53,9 +53,13 @@ Postgres will be available on `localhost:5432` with:
 From [`apps/api`](/home/chris/dev/ebook-rag/apps/api):
 
 ```bash
+export DATABASE_URL=postgresql+psycopg://ebook_rag:ebook_rag@localhost:5432/ebook_rag
 uv sync
+uv run alembic upgrade head
 uv run uvicorn ebook_rag_api.main:app --reload --app-dir src --host 0.0.0.0 --port 8000
 ```
+
+The API defaults to SQLite if `DATABASE_URL` is unset. Set it to the Postgres container above before running migrations or starting the server.
 
 Health check:
 
@@ -80,13 +84,14 @@ Current implementation includes:
 
 - local Postgres + `pgvector`
 - FastAPI app with a health endpoint
-- SQLAlchemy database wiring and table initialization
+- SQLAlchemy database wiring with Alembic migrations
 - PDF upload, file registration, and PyMuPDF extraction
 - persisted per-page text and paragraph-aware chunks
 - chunk embeddings generated during ingestion
 - document ingestion statuses with chunk metadata
 - document listing and detail endpoints
-- dense retrieval over stored chunk embeddings
+- PostgreSQL `pgvector` storage for chunk embeddings
+- dense retrieval executed in the database
 - grounded question answering with citations
 - pluggable QA providers, including a local extractive fallback and an OpenAI-compatible adapter
 - Next.js app shell
@@ -94,8 +99,6 @@ Current implementation includes:
 
 Current limitations:
 
-- chunk embeddings are currently stored as JSON, not PostgreSQL `pgvector`
-- schema evolution still uses startup table creation instead of Alembic migrations
 - retrieval is dense-only today; reranking and debug views are still pending
 - the web app has not yet been wired to the upload, retrieval, and QA flows
 
@@ -118,25 +121,13 @@ QA builds on retrieval and returns a grounded answer plus structured citations. 
 
 The project has reached the first end-to-end backend milestone: upload -> ingest -> retrieve -> answer. The next work should close the gap between the current implementation and the target architecture in the project spec.
 
-### 1. Move vector storage and retrieval onto PostgreSQL `pgvector`
-
-- replace JSON-backed embedding storage with a real vector column
-- run similarity search in the database instead of in Python
-- add the database extension and indexes needed for scalable retrieval
-
-### 2. Add Alembic migrations and tighten persistence
-
-- replace startup `create_all` schema management with explicit migrations
-- make local development and schema changes reproducible across environments
-- prepare the project for incremental database evolution as retrieval and tracing expand
-
-### 3. Improve retrieval quality and observability
+### 1. Improve retrieval quality and observability
 
 - add debug payloads or endpoints for retrieved chunk IDs, scores, and final prompt context
 - add a small benchmark set with expected citations
 - add reranking only after baseline retrieval quality is measurable
 
-### 4. Build the actual web workflow
+### 2. Build the actual web workflow
 
 - wire the Next.js app to document upload, document browsing, retrieval inspection, and QA
 - expose citations and supporting chunks in the UI so answers are auditable

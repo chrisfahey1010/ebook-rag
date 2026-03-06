@@ -1,10 +1,10 @@
-import math
 import re
 
-from sqlalchemy import select
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session, joinedload
 
 from ebook_rag_api.core.config import get_settings
+from ebook_rag_api.db.vector import is_postgresql_dialect
 from ebook_rag_api.models import Document, DocumentChunk
 from ebook_rag_api.services.embeddings import get_embedding_provider
 
@@ -16,6 +16,8 @@ def normalize_query(text: str) -> str:
 
 
 def cosine_similarity(left: list[float], right: list[float]) -> float:
+    import math
+
     if not left or not right or len(left) != len(right):
         return 0.0
 
@@ -37,6 +39,30 @@ def search_chunks(
     settings = get_settings()
     provider = get_embedding_provider()
     query_embedding = provider.embed_texts([normalized_query])[0]
+
+    bind = session.get_bind()
+    if bind is not None and is_postgresql_dialect(bind.dialect.name):
+        score_expression = (1 - DocumentChunk.embedding_vector.cosine_distance(query_embedding)).label(
+            "score"
+        )
+        statement = (
+            select(DocumentChunk, score_expression)
+            .join(Document)
+            .options(joinedload(DocumentChunk.document))
+            .where(Document.status == "ready")
+            .where(DocumentChunk.embedding_vector.is_not(None))
+            .where(DocumentChunk.embedding_dimensions == len(query_embedding))
+        )
+        if document_id is not None:
+            statement = statement.where(DocumentChunk.document_id == document_id)
+
+        statement = statement.order_by(
+            desc(score_expression),
+            DocumentChunk.page_start.asc(),
+            DocumentChunk.chunk_index.asc(),
+        ).limit(top_k)
+        rows = session.execute(statement).all()
+        return normalized_query, [(row[0], row[1]) for row in rows]
 
     statement = (
         select(DocumentChunk)

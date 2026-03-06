@@ -5,7 +5,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from ebook_rag_api.core.config import get_settings
-from ebook_rag_api.db import get_engine, get_session_factory
+from ebook_rag_api.db import Base, get_engine, get_session_factory
+from ebook_rag_api.models import Document, DocumentChunk, DocumentPage, IngestionJob
 from ebook_rag_api.main import create_app
 from ebook_rag_api.services.embeddings import get_embedding_provider
 from ebook_rag_api.services.qa import get_answer_provider
@@ -53,6 +54,8 @@ def app_environment(tmp_path, monkeypatch) -> Generator[None, None, None]:
 @pytest.fixture()
 def client(app_environment) -> Generator[TestClient, None, None]:
     app = create_app()
+    _ = (Document, DocumentChunk, DocumentPage, IngestionJob)
+    Base.metadata.create_all(bind=get_engine())
 
     with TestClient(app) as test_client:
         yield test_client
