@@ -83,17 +83,21 @@ Current implementation includes:
 - SQLAlchemy database wiring and table initialization
 - PDF upload, file registration, and PyMuPDF extraction
 - persisted per-page text and paragraph-aware chunks
+- chunk embeddings generated during ingestion
 - document ingestion statuses with chunk metadata
 - document listing and detail endpoints
+- dense retrieval over stored chunk embeddings
+- grounded question answering with citations
+- pluggable QA providers, including a local extractive fallback and an OpenAI-compatible adapter
 - Next.js app shell
 - root-level docs for local development
 
-Planned next steps:
+Current limitations:
 
-- embeddings on persisted chunks
-- vector retrieval over stored chunk embeddings
-- question answering with cited sources
-- retrieval quality pass with reranking and debug visibility
+- chunk embeddings are currently stored as JSON, not PostgreSQL `pgvector`
+- schema evolution still uses startup table creation instead of Alembic migrations
+- retrieval is dense-only today; reranking and debug views are still pending
+- the web app has not yet been wired to the upload, retrieval, and QA flows
 
 ## API snapshot
 
@@ -101,37 +105,39 @@ Planned next steps:
 - `GET /api/documents`
 - `GET /api/documents/{document_id}`
 - `POST /api/documents/upload`
+- `POST /api/retrieval/search`
+- `POST /api/qa/ask`
 
-Upload now registers the PDF, computes its SHA-256 checksum, stores the file locally, extracts per-page text with PyMuPDF, builds paragraph-aware chunks with page spans and token estimates, persists those records, and returns document plus ingestion status metadata. Embeddings and retrieval are the next milestone.
+Upload registers the PDF, computes its SHA-256 checksum, stores the file locally, extracts per-page text with PyMuPDF, builds paragraph-aware chunks with page spans and token estimates, generates embeddings, persists the records, and returns document plus ingestion status metadata.
+
+Retrieval accepts a natural-language query, embeds it, scores persisted chunks, and returns ranked matches with document metadata, page spans, and similarity scores.
+
+QA builds on retrieval and returns a grounded answer plus structured citations. The default local answerer is conservative and can decline to answer when the indexed content does not provide enough support. A configurable OpenAI-compatible provider path is also available for model-backed generation.
 
 ## Next implementation plan
 
-This plan follows the project spec's V1 retrieval path: embed chunks, retrieve candidate chunks from vector search, then build cited answers before adding reranking and deeper debug tooling.
+The project has reached the first end-to-end backend milestone: upload -> ingest -> retrieve -> answer. The next work should close the gap between the current implementation and the target architecture in the project spec.
 
-### 1. Add embeddings to ingestion
+### 1. Move vector storage and retrieval onto PostgreSQL `pgvector`
 
-- extend chunk persistence to store embedding vectors in PostgreSQL with `pgvector`
-- add embedding configuration to the API settings
-- define an embedding provider interface and start with one concrete local/default adapter
-- update ingestion so newly created chunks are embedded before a document is marked ready
+- replace JSON-backed embedding storage with a real vector column
+- run similarity search in the database instead of in Python
+- add the database extension and indexes needed for scalable retrieval
 
-### 2. Add retrieval endpoint
+### 2. Add Alembic migrations and tighten persistence
 
-- add query preprocessing and query embedding
-- implement top-N dense retrieval against persisted chunk vectors
-- return chunk text, page spans, and document metadata in a retrieval response
-- keep retrieval observable enough that a later debug view can reuse the same payloads
+- replace startup `create_all` schema management with explicit migrations
+- make local development and schema changes reproducible across environments
+- prepare the project for incremental database evolution as retrieval and tracing expand
 
-### 3. Add answer generation with citations
+### 3. Improve retrieval quality and observability
 
-- define a minimal LLM provider interface
-- assemble retrieved chunks into a grounded prompt with page references
-- add a first `POST /api/qa/ask` endpoint that returns answer text plus cited sources
-- keep answer generation conservative: answer from evidence or say the document does not contain enough support
-
-### 4. Tighten the quality loop
-
-- add integration tests for `upload -> ingest -> retrieve -> answer`
-- add a small manual benchmark set with expected citations
-- add debug endpoints or payload fields for retrieved chunk IDs, scores, and final context
+- add debug payloads or endpoints for retrieved chunk IDs, scores, and final prompt context
+- add a small benchmark set with expected citations
 - add reranking only after baseline retrieval quality is measurable
+
+### 4. Build the actual web workflow
+
+- wire the Next.js app to document upload, document browsing, retrieval inspection, and QA
+- expose citations and supporting chunks in the UI so answers are auditable
+- make visible progress in the browser instead of only through backend endpoints
