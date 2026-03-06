@@ -82,14 +82,15 @@ Current implementation includes:
 - FastAPI app with a health endpoint
 - SQLAlchemy database wiring and table initialization
 - PDF upload, file registration, and PyMuPDF extraction
-- persisted per-page text with document ingestion statuses
+- persisted per-page text and paragraph-aware chunks
+- document ingestion statuses with chunk metadata
 - document listing and detail endpoints
 - Next.js app shell
 - root-level docs for local development
 
 Planned next steps:
 
-- chunking, embeddings, retrieval, and answer citations
+- embeddings, retrieval, and answer citations
 
 ## API snapshot
 
@@ -98,4 +99,4 @@ Planned next steps:
 - `GET /api/documents/{document_id}`
 - `POST /api/documents/upload`
 
-Upload now registers the PDF, computes its SHA-256 checksum, stores the file locally, extracts per-page text with PyMuPDF, persists page records, and returns document plus ingestion status metadata. Chunking and indexing are the next milestone.
+Upload now registers the PDF, computes its SHA-256 checksum, stores the file locally, extracts per-page text with PyMuPDF, builds paragraph-aware chunks with page spans and token estimates, persists those records, and returns document plus ingestion status metadata. Embeddings and retrieval are the next milestone.

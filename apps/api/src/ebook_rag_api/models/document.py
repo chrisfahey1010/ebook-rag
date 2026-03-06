@@ -31,5 +31,18 @@ class Document(Base):
 
     ingestion_jobs = relationship("IngestionJob", back_populates="document")
     pages = relationship(
-        "DocumentPage", back_populates="document", cascade="all, delete-orphan"
+        "DocumentPage",
+        back_populates="document",
+        cascade="all, delete-orphan",
+        order_by="DocumentPage.page_number",
     )
+    chunks = relationship(
+        "DocumentChunk",
+        back_populates="document",
+        cascade="all, delete-orphan",
+        order_by="DocumentChunk.chunk_index",
+    )
+
+    @property
+    def chunk_count(self) -> int:
+        return len(self.chunks)

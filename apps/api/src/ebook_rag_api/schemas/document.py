@@ -12,6 +12,7 @@ class DocumentSummary(BaseModel):
     title: str | None
     sha256: str
     page_count: int | None
+    chunk_count: int
     status: str
     created_at: datetime
     updated_at: datetime | None

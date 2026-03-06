@@ -24,7 +24,7 @@ def pdf_factory() -> Callable[[list[str]], bytes]:
 
 
 @pytest.fixture()
-def client(tmp_path, monkeypatch) -> Generator[TestClient, None, None]:
+def app_environment(tmp_path, monkeypatch) -> Generator[None, None, None]:
     database_path = tmp_path / "test.db"
     uploads_dir = tmp_path / "uploads"
 
@@ -36,12 +36,22 @@ def client(tmp_path, monkeypatch) -> Generator[TestClient, None, None]:
     get_engine.cache_clear()
     get_session_factory.cache_clear()
 
-    app = create_app()
-
-    with TestClient(app) as test_client:
-        yield test_client
+    yield
 
     get_engine().dispose()
     get_settings.cache_clear()
     get_engine.cache_clear()
     get_session_factory.cache_clear()
+
+
+@pytest.fixture()
+def client(app_environment) -> Generator[TestClient, None, None]:
+    app = create_app()
+
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+@pytest.fixture()
+def session_factory(app_environment):
+    return get_session_factory()

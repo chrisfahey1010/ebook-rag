@@ -6,6 +6,7 @@ import fitz
 from sqlalchemy.orm import Session
 
 from ebook_rag_api.models import Document, DocumentPage, IngestionJob
+from ebook_rag_api.services.chunking import build_document_chunks
 
 WHITESPACE_RE = re.compile(r"[ \t]+")
 BLANK_LINE_RE = re.compile(r"\n{3,}")
@@ -59,6 +60,10 @@ def run_extraction_pipeline(
     document.pages.clear()
     for page in pages:
         document.pages.append(page)
+
+    document.chunks.clear()
+    for chunk in build_document_chunks(document.pages):
+        document.chunks.append(chunk)
 
     document.page_count = page_count
     document.status = "ready"
