@@ -77,3 +77,47 @@ def test_qa_answer_returns_unsupported_when_evidence_is_missing(
     assert payload["supported"] is False
     assert "could not find enough support" in payload["answer"].lower()
     assert payload["citations"] == []
+
+
+def test_qa_answer_can_include_trace_payload(
+    client: TestClient, pdf_factory
+) -> None:
+    upload_response = client.post(
+        "/api/documents/upload",
+        files={
+            "file": (
+                "operations.pdf",
+                pdf_factory(
+                    [
+                        "Launch checklist\n\nInspect the heat shield before ignition.",
+                        "Landing checklist\n\nDeploy the parachute after atmospheric entry.",
+                    ]
+                ),
+                "application/pdf",
+            )
+        },
+    )
+
+    assert upload_response.status_code == 201
+    document_id = upload_response.json()["document"]["id"]
+
+    response = client.post(
+        "/api/qa/ask",
+        json={
+            "question": "What should happen before ignition?",
+            "document_id": document_id,
+            "top_k": 4,
+            "include_trace": True,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["trace"] is not None
+    assert payload["trace"]["answer_provider"] == "ExtractiveAnswerProvider"
+    assert payload["trace"]["retrieved_chunks"]
+    assert payload["trace"]["selected_contexts"]
+    assert "Question: What should happen before ignition?" in payload["trace"]["prompt_snapshot"]
+    assert "Inspect the heat shield before ignition." in payload["trace"]["prompt_snapshot"]
+    assert payload["trace"]["selected_contexts"][0]["chunk_id"] == payload["citations"][0]["chunk_id"]
+    assert payload["trace"]["timings"]["total_ms"] >= 0

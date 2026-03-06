@@ -1,0 +1,76 @@
+{
+  "name": "sample-eval",
+  "documents": [
+    {
+      "filename": "field-guide.pdf",
+      "pages": [
+        "Battery care\n\nCharge the rover battery before long field sessions.",
+        "Maintenance\n\nInspect the rover wheels after each rocky traverse.",
+        "Storage\n\nKeep replacement batteries in a dry compartment away from dust."
+      ],
+      "questions": [
+        {
+          "question": "What should happen before long field sessions?",
+          "expected_supported": true,
+          "expected_answer_contains": ["charge the rover battery"],
+          "expected_citation_pages": [1]
+        },
+        {
+          "question": "What should be inspected after each rocky traverse?",
+          "expected_supported": true,
+          "expected_answer_contains": ["inspect the rover wheels"],
+          "expected_citation_pages": [2]
+        },
+        {
+          "question": "What does the guide say about whale migration routes?",
+          "expected_supported": false,
+          "expected_citation_pages": []
+        }
+      ]
+    },
+    {
+      "filename": "space-manual.pdf",
+      "pages": [
+        "Launch checklist\n\nInspect the heat shield before ignition.",
+        "Flight operations\n\nMonitor cabin pressure during ascent and orbit insertion.",
+        "Landing checklist\n\nDeploy the parachute after atmospheric entry."
+      ],
+      "questions": [
+        {
+          "question": "What should happen before ignition?",
+          "expected_supported": true,
+          "expected_answer_contains": ["inspect the heat shield"],
+          "expected_citation_pages": [1]
+        },
+        {
+          "question": "When should the parachute be deployed?",
+          "expected_supported": true,
+          "expected_answer_contains": ["after atmospheric entry"],
+          "expected_citation_pages": [3]
+        }
+      ]
+    },
+    {
+      "filename": "ocean-notes.pdf",
+      "pages": [
+        "Currents\n\nCold currents move nutrients toward coastal ecosystems.",
+        "Marine mammals\n\nWhales migrate through colder water regions during feeding seasons.",
+        "Coral reefs\n\nReefs depend on stable temperature ranges and clear water."
+      ],
+      "questions": [
+        {
+          "question": "What do the notes say about whale migration?",
+          "expected_supported": true,
+          "expected_answer_contains": ["whales migrate through colder water regions"],
+          "expected_citation_pages": [2]
+        },
+        {
+          "question": "What helps coastal ecosystems receive nutrients?",
+          "expected_supported": true,
+          "expected_answer_contains": ["cold currents"],
+          "expected_citation_pages": [1]
+        }
+      ]
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 import re
 from dataclasses import dataclass
 from functools import lru_cache
+from time import perf_counter
 from typing import Protocol
 
 import httpx
@@ -61,6 +62,25 @@ class GeneratedAnswer:
     answer_text: str
     supported: bool
     citations: list[RetrievedChunkContext]
+
+
+@dataclass(frozen=True)
+class QATimingBreakdown:
+    normalization_ms: float
+    retrieval_ms: float
+    context_assembly_ms: float
+    answer_generation_ms: float
+    total_ms: float
+
+
+@dataclass(frozen=True)
+class QATrace:
+    answer_provider: str
+    retrieved_chunks: list[RetrievedChunkContext]
+    selected_contexts: list[RetrievedChunkContext]
+    prompt_snapshot: str
+    timings: QATimingBreakdown
+    answer: GeneratedAnswer
 
 
 class AnswerProvider(Protocol):
@@ -205,19 +225,64 @@ def get_answer_provider() -> AnswerProvider:
 def ask_question(
     session: Session, question: str, top_k: int, document_id: str | None = None
 ) -> tuple[str, list[RetrievedChunkContext], GeneratedAnswer]:
+    normalized_question, trace = ask_question_with_trace(
+        session=session,
+        question=question,
+        top_k=top_k,
+        document_id=document_id,
+    )
+    return normalized_question, trace.retrieved_chunks, trace.answer
+
+
+def ask_question_with_trace(
+    session: Session,
+    question: str,
+    top_k: int,
+    document_id: str | None = None,
+    include_prompt_snapshot: bool = True,
+) -> tuple[str, QATrace]:
+    started_at = perf_counter()
     normalized_question = normalize_query(question)
+    normalized_at = perf_counter()
     _, matches = search_chunks(
         session=session,
         query=normalized_question,
         top_k=top_k,
         document_id=document_id,
     )
-    contexts = [build_chunk_context(chunk, score) for chunk, score in matches]
-    answer = get_answer_provider().generate_answer(
-        question=normalized_question,
-        contexts=contexts,
+    retrieved_at = perf_counter()
+    retrieved_chunks = [build_chunk_context(chunk, score) for chunk, score in matches]
+    selected_contexts = assemble_answer_contexts(retrieved_chunks)
+    prompt_snapshot = (
+        build_qa_prompt(
+            question=normalized_question,
+            contexts=selected_contexts,
+        )
+        if include_prompt_snapshot
+        else ""
     )
-    return normalized_question, contexts, answer
+    context_assembled_at = perf_counter()
+    answer_provider = get_answer_provider()
+    answer = answer_provider.generate_answer(
+        question=normalized_question,
+        contexts=selected_contexts,
+    )
+    answered_at = perf_counter()
+    trace = QATrace(
+        answer_provider=type(answer_provider).__name__,
+        retrieved_chunks=retrieved_chunks,
+        selected_contexts=selected_contexts,
+        prompt_snapshot=prompt_snapshot,
+        timings=QATimingBreakdown(
+            normalization_ms=(normalized_at - started_at) * 1000,
+            retrieval_ms=(retrieved_at - normalized_at) * 1000,
+            context_assembly_ms=(context_assembled_at - retrieved_at) * 1000,
+            answer_generation_ms=(answered_at - context_assembled_at) * 1000,
+            total_ms=(answered_at - started_at) * 1000,
+        ),
+        answer=answer,
+    )
+    return normalized_question, trace
 
 
 def build_chunk_context(chunk: DocumentChunk, score: float) -> RetrievedChunkContext:
@@ -232,6 +297,12 @@ def build_chunk_context(chunk: DocumentChunk, score: float) -> RetrievedChunkCon
         text=chunk.text,
         score=score,
     )
+
+
+def assemble_answer_contexts(
+    contexts: list[RetrievedChunkContext],
+) -> list[RetrievedChunkContext]:
+    return list(contexts)
 
 
 def _tokenize(text: str) -> set[str]:

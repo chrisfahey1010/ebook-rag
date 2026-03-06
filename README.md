@@ -104,7 +104,7 @@ Current implementation includes:
 Current limitations:
 
 - retrieval is dense-only today; reranking is still pending
-- the debug surface currently covers ranked retrieval candidates, but not reranker scores or final prompt context yet
+- retrieval quality is now measurable, but the current dense-only baseline still misses several benchmark citations and needs reranking or retrieval improvements
 
 ## API snapshot
 
@@ -123,14 +123,26 @@ Retrieval accepts a natural-language query, embeds it, scores persisted chunks, 
 
 QA builds on retrieval and returns a grounded answer plus structured citations. The default local answerer is conservative and can decline to answer when the indexed content does not provide enough support. A configurable OpenAI-compatible provider path is also available for model-backed generation.
 
+`POST /api/qa/ask` now accepts `include_trace=true` to expose the selected context window, prompt snapshot, provider name, and timing breakdown used for answer generation.
+
 Debug retrieval exposes the ranked candidate list directly so the frontend can show what the retriever selected before answer generation.
+
+## Evaluation
+
+Run the sample retrieval and citation benchmark from [`apps/api`](/home/chris/dev/ebook-rag/apps/api):
+
+```bash
+uv run python scripts/run_eval.py
+```
+
+This uses [`sample_eval.json`](/home/chris/dev/ebook-rag/apps/api/benchmarks/sample_eval.json) to upload a small set of synthetic PDFs, ask benchmark questions, and print retrieval hit rate, citation hit rate, support accuracy, answer match rate, and average latency.
 
 ## Next implementation plan
 
 The project has reached the first end-to-end product milestone: upload -> ingest -> retrieve -> answer in both the API and the browser UI. The next work should close the remaining quality and observability gaps from the project spec.
 
-### 1. Improve retrieval quality and observability
+### 1. Improve retrieval quality
 
-- add debug payloads or endpoints for retrieved chunk IDs, scores, and final prompt context
-- add a small benchmark set with expected citations
-- add reranking only after baseline retrieval quality is measurable
+- use the new benchmark runner to measure baseline retrieval hit rate and citation accuracy
+- add reranking now that the baseline is measurable
+- optionally add lexical retrieval after reranking so improvements can be evaluated in isolation

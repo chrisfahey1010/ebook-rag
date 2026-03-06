@@ -43,6 +43,23 @@ type QAResponse = {
   supported: boolean;
   citations: Citation[];
   retrieved_chunk_count: number;
+  trace: QATrace | null;
+};
+
+type QATimingBreakdown = {
+  normalization_ms: number;
+  retrieval_ms: number;
+  context_assembly_ms: number;
+  answer_generation_ms: number;
+  total_ms: number;
+};
+
+type QATrace = {
+  answer_provider: string;
+  retrieved_chunks: RetrievalMatch[];
+  selected_contexts: RetrievalMatch[];
+  prompt_snapshot: string;
+  timings: QATimingBreakdown;
 };
 
 type RetrievalMatch = {
@@ -126,6 +143,7 @@ export default function Home() {
   const [lastUploadMessage, setLastUploadMessage] = useState<string | null>(null);
   const [answer, setAnswer] = useState<QAResponse | null>(null);
   const [retrievalResult, setRetrievalResult] = useState<RetrievalResponse | null>(null);
+  const [qaTrace, setQaTrace] = useState<QATrace | null>(null);
   const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
   const [isLoadingDocuments, setIsLoadingDocuments] = useState(true);
   const [isUploading, startUploadTransition] = useTransition();
@@ -217,6 +235,7 @@ export default function Home() {
         setDocuments((current) => [payload.document, ...current]);
         setSelectedDocumentId(payload.document.id);
         setAnswer(null);
+        setQaTrace(null);
         setRetrievalResult(null);
         setRetrievalError(null);
         setQuestion("");
@@ -253,28 +272,34 @@ export default function Home() {
 
     startAnswerTransition(async () => {
       try {
-        const [retrievalPayload, qaResponse] = await Promise.all([
-          fetchRetrieval(trimmedQuestion, selectedDocumentId),
-          fetch(`${apiBaseUrl}/api/qa/ask`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              question: trimmedQuestion,
-              document_id: selectedDocumentId,
-              top_k: 5,
-            }),
+        const qaResponse = await fetch(`${apiBaseUrl}/api/qa/ask`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            question: trimmedQuestion,
+            document_id: selectedDocumentId,
+            top_k: 5,
+            include_trace: true,
           }),
-        ]);
+        });
 
         if (!qaResponse.ok) {
           throw new Error(await parseApiError(qaResponse));
         }
         const qaPayload = (await qaResponse.json()) as QAResponse;
 
-        setRetrievalResult(retrievalPayload);
         setAnswer(qaPayload);
+        setQaTrace(qaPayload.trace);
+        setRetrievalResult(
+          qaPayload.trace
+            ? {
+                normalized_query: qaPayload.normalized_question,
+                matches: qaPayload.trace.retrieved_chunks,
+              }
+            : null,
+        );
       } catch (error) {
         setQaError(error instanceof Error ? error.message : "Question failed.");
       }
@@ -351,6 +376,7 @@ export default function Home() {
 
         if (selectedDocumentId === document.id) {
           setAnswer(null);
+          setQaTrace(null);
           setRetrievalResult(null);
           setQaError(null);
           setRetrievalError(null);
@@ -510,6 +536,7 @@ export default function Home() {
                           onClick={() => {
                             setSelectedDocumentId(document.id);
                             setAnswer(null);
+                            setQaTrace(null);
                             setQaError(null);
                             setRetrievalResult(null);
                             setRetrievalError(null);
@@ -699,6 +726,34 @@ export default function Home() {
                         </p>
                       </div>
                     </div>
+                    {qaTrace ? (
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <div className="rounded-[1.1rem] border border-[var(--border)] bg-white/60 px-4 py-4">
+                          <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+                            Answer provider
+                          </p>
+                          <p className="mt-2 text-sm leading-6">
+                            {qaTrace.answer_provider}
+                          </p>
+                        </div>
+                        <div className="rounded-[1.1rem] border border-[var(--border)] bg-white/60 px-4 py-4">
+                          <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+                            Context window
+                          </p>
+                          <p className="mt-2 text-sm leading-6">
+                            {qaTrace.selected_contexts.length} chunks selected
+                          </p>
+                        </div>
+                        <div className="rounded-[1.1rem] border border-[var(--border)] bg-white/60 px-4 py-4">
+                          <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+                            Total latency
+                          </p>
+                          <p className="mt-2 text-sm leading-6">
+                            {qaTrace.timings.total_ms.toFixed(1)} ms
+                          </p>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 )}
               </article>
@@ -784,6 +839,39 @@ export default function Home() {
                       </p>
                     </div>
 
+                    {qaTrace ? (
+                      <>
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="rounded-[1.1rem] border border-[var(--border)] bg-white/60 px-4 py-4">
+                            <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+                              Selected context
+                            </p>
+                            <p className="mt-2 text-sm leading-6">
+                              {qaTrace.selected_contexts.length} chunks sent to answer generation
+                            </p>
+                          </div>
+                          <div className="rounded-[1.1rem] border border-[var(--border)] bg-white/60 px-4 py-4">
+                            <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+                              Timings
+                            </p>
+                            <p className="mt-2 text-sm leading-6">
+                              retrieval {qaTrace.timings.retrieval_ms.toFixed(1)} ms, answer{" "}
+                              {qaTrace.timings.answer_generation_ms.toFixed(1)} ms
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="rounded-[1.1rem] border border-[var(--border)] bg-white/60 px-4 py-4">
+                          <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+                            Prompt snapshot
+                          </p>
+                          <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-[0.9rem] bg-stone-950 px-4 py-4 text-xs leading-6 text-stone-100">
+                            {qaTrace.prompt_snapshot}
+                          </pre>
+                        </div>
+                      </>
+                    ) : null}
+
                     <div className="flex max-h-[42rem] flex-col gap-4 overflow-y-auto pr-1">
                       {retrievalResult.matches.map((match, index) => (
                         <article
@@ -825,6 +913,59 @@ export default function Home() {
                         </article>
                       ))}
                     </div>
+
+                    {qaTrace && qaTrace.selected_contexts.length > 0 ? (
+                      <div className="space-y-4">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.24em] text-[var(--muted)]">
+                            Final context
+                          </p>
+                          <h4 className="mt-2 text-lg">Chunks passed to answer generation</h4>
+                        </div>
+
+                        <div className="flex max-h-[32rem] flex-col gap-4 overflow-y-auto pr-1">
+                          {qaTrace.selected_contexts.map((match, index) => (
+                            <article
+                              key={`${match.chunk_id}-selected`}
+                              className="rounded-[1.2rem] border border-[var(--border)] bg-amber-50/70 p-4"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <p className="text-sm font-medium">
+                                    {match.document_title || match.document_filename}
+                                  </p>
+                                  <p className="mt-1 text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
+                                    Context {index + 1}
+                                  </p>
+                                </div>
+                                <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-900">
+                                  {match.score.toFixed(3)}
+                                </span>
+                              </div>
+
+                              <dl className="mt-4 grid grid-cols-2 gap-3 text-sm text-[var(--muted)]">
+                                <div>
+                                  <dt>Pages</dt>
+                                  <dd className="mt-1 text-[var(--foreground)]">
+                                    {formatPageRange(match.page_start, match.page_end)}
+                                  </dd>
+                                </div>
+                                <div>
+                                  <dt>Chunk</dt>
+                                  <dd className="mt-1 text-[var(--foreground)]">
+                                    #{match.chunk_index}
+                                  </dd>
+                                </div>
+                              </dl>
+
+                              <p className="mt-4 text-sm leading-7 text-[var(--foreground)]">
+                                {match.text}
+                              </p>
+                            </article>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 )}
               </aside>
