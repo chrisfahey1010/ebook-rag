@@ -144,6 +144,10 @@ def create_document_record(
         ) from None
 
 
+def get_document(session: Session, document_id: str) -> Document | None:
+    return session.scalar(select(Document).where(Document.id == document_id))
+
+
 def list_documents(session: Session) -> list[Document]:
     statement = select(Document).order_by(Document.created_at.desc())
     return list(session.scalars(statement))

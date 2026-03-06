@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from ebook_rag_api.core.config import get_settings
@@ -6,9 +6,11 @@ from ebook_rag_api.db import get_db_session
 from ebook_rag_api.schemas import DocumentSummary, DocumentUploadResponse
 from ebook_rag_api.services.documents import (
     create_document_record,
+    get_document,
     list_documents,
     store_pdf_upload,
 )
+from ebook_rag_api.services.extraction import run_extraction_pipeline
 
 router = APIRouter()
 
@@ -17,6 +19,20 @@ router = APIRouter()
 def get_documents(session: Session = Depends(get_db_session)) -> list[DocumentSummary]:
     documents = list_documents(session)
     return [DocumentSummary.model_validate(document) for document in documents]
+
+
+@router.get(
+    "/{document_id}",
+    response_model=DocumentSummary,
+    summary="Get a single uploaded document",
+)
+def get_document_by_id(
+    document_id: str, session: Session = Depends(get_db_session)
+) -> DocumentSummary:
+    document = get_document(session, document_id)
+    if document is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
+    return DocumentSummary.model_validate(document)
 
 
 @router.post(
@@ -36,9 +52,11 @@ def upload_document(
         max_upload_size_mb=settings.max_upload_size_mb,
     )
     document, ingestion_job = create_document_record(session, stored_upload)
+    document, ingestion_job = run_extraction_pipeline(session, document, ingestion_job)
 
     return DocumentUploadResponse(
         document=DocumentSummary.model_validate(document),
         ingestion_job_id=ingestion_job.id,
         ingestion_status=ingestion_job.status,
+        ingestion_error=ingestion_job.error_message,
     )

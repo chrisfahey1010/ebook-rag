@@ -21,3 +21,4 @@ class DocumentUploadResponse(BaseModel):
     document: DocumentSummary
     ingestion_job_id: str
     ingestion_status: str
+    ingestion_error: str | None = None

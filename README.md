@@ -81,20 +81,21 @@ Current implementation includes:
 - local Postgres + `pgvector`
 - FastAPI app with a health endpoint
 - SQLAlchemy database wiring and table initialization
-- PDF upload and file registration endpoints
-- document listing endpoint with ingestion status placeholders
+- PDF upload, file registration, and PyMuPDF extraction
+- persisted per-page text with document ingestion statuses
+- document listing and detail endpoints
 - Next.js app shell
 - root-level docs for local development
 
 Planned next steps:
 
-- PyMuPDF extraction pipeline
 - chunking, embeddings, retrieval, and answer citations
 
 ## API snapshot
 
 - `GET /health`
 - `GET /api/documents`
+- `GET /api/documents/{document_id}`
 - `POST /api/documents/upload`
 
-Upload currently registers the PDF, computes its SHA-256 checksum, stores the file locally, creates a queued ingestion job, and returns document metadata. Extraction and indexing are the next milestone.
+Upload now registers the PDF, computes its SHA-256 checksum, stores the file locally, extracts per-page text with PyMuPDF, persists page records, and returns document plus ingestion status metadata. Chunking and indexing are the next milestone.

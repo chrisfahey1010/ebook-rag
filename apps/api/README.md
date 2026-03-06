@@ -13,4 +13,5 @@ uv run uvicorn ebook_rag_api.main:app --reload --app-dir src
 
 - `GET /health`
 - `GET /api/documents`
+- `GET /api/documents/{document_id}`
 - `POST /api/documents/upload`

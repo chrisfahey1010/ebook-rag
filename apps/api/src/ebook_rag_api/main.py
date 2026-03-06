@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from ebook_rag_api.api.router import api_router
 from ebook_rag_api.core.config import get_settings
 from ebook_rag_api.db import Base, get_engine
-from ebook_rag_api.models import Document, IngestionJob
+from ebook_rag_api.models import Document, DocumentPage, IngestionJob
 
 
 @asynccontextmanager
@@ -15,7 +15,7 @@ async def lifespan(_: FastAPI):
 
     # Importing model modules before metadata creation keeps table registration
     # explicit while avoiding implicit import side effects elsewhere.
-    _ = (Document, IngestionJob)
+    _ = (Document, DocumentPage, IngestionJob)
     Base.metadata.create_all(bind=get_engine())
     yield
 

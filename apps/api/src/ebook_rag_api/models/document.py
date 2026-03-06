@@ -30,3 +30,6 @@ class Document(Base):
     )
 
     ingestion_jobs = relationship("IngestionJob", back_populates="document")
+    pages = relationship(
+        "DocumentPage", back_populates="document", cascade="all, delete-orphan"
+    )
