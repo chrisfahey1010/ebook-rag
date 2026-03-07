@@ -16,3 +16,7 @@ node_modules/
 *.db
 apps/api/data/uploads/
 apps/api/benchmarks/results/
+apps/api/benchmarks/local/
+*.pdf:Zone.Identifier
+hells_angels.pdf
+hells_angels.pdf:Zone.Identifier
