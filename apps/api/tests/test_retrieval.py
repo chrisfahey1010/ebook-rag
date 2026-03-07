@@ -85,6 +85,8 @@ def test_retrieval_search_returns_ranked_matches(
     assert payload["matches"][0]["document_id"] == mars_document_id
     assert "rover" in payload["matches"][0]["text"].lower()
     assert "dense_score" in payload["matches"][0]
+    assert "lexical_score" in payload["matches"][0]
+    assert "hybrid_score" in payload["matches"][0]
     assert "rerank_score" in payload["matches"][0]
     assert payload["matches"][0]["score"] >= payload["matches"][-1]["score"]
 
@@ -170,6 +172,8 @@ def test_debug_retrieve_returns_ranked_candidates_for_workspace_inspection(
     assert payload["matches"][0]["document_id"] == document_id
     assert "inspect the seals" in payload["matches"][0]["text"].lower()
     assert "dense_score" in payload["matches"][0]
+    assert "lexical_score" in payload["matches"][0]
+    assert "hybrid_score" in payload["matches"][0]
     assert "rerank_score" in payload["matches"][0]
     assert payload["matches"][0]["score"] >= payload["matches"][-1]["score"]
 
@@ -213,3 +217,46 @@ def test_retrieval_falls_back_to_token_overlap_when_reranker_fails(
     assert payload["matches"]
     assert "inspect the cooling lines" in payload["matches"][0]["text"].lower()
     assert payload["matches"][0]["rerank_score"] > 0
+
+
+def test_retrieval_can_surface_lexical_matches_when_dense_scores_are_flat(
+    client: TestClient, pdf_factory, monkeypatch
+) -> None:
+    upload = client.post(
+        "/api/documents/upload",
+        files={
+            "file": (
+                "catalog.pdf",
+                pdf_factory(
+                    [
+                        "Parts list\n\nThe xenobotany appendix covers chlorophyll sampling procedures.",
+                        "Field notes\n\nGeneral rover maintenance instructions for filters and seals.",
+                    ]
+                ),
+                "application/pdf",
+            )
+        },
+    )
+    assert upload.status_code == 201
+
+    class _ZeroEmbeddingProvider:
+        def embed_texts(self, texts: list[str]) -> list[list[float]]:
+            return [[0.0] * 128 for _ in texts]
+
+    monkeypatch.setattr(
+        "ebook_rag_api.services.retrieval.get_embedding_provider",
+        lambda: _ZeroEmbeddingProvider(),
+    )
+
+    response = client.post(
+        "/api/retrieval/search",
+        json={"query": "chlorophyll sampling procedures", "top_k": 3},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["matches"]
+    assert "chlorophyll sampling procedures" in payload["matches"][0]["text"].lower()
+    assert payload["matches"][0]["dense_score"] == 0
+    assert payload["matches"][0]["lexical_score"] > 0
+    assert payload["matches"][0]["hybrid_score"] > 0

@@ -42,6 +42,8 @@ def answer_question(
                 page_end=context.page_end,
                 text=context.text,
                 dense_score=context.dense_score,
+                lexical_score=context.lexical_score,
+                hybrid_score=context.hybrid_score,
                 rerank_score=context.rerank_score,
                 score=context.score,
             )
@@ -62,6 +64,8 @@ def answer_question(
                         page_end=context.page_end,
                         text=context.text,
                         dense_score=context.dense_score,
+                        lexical_score=context.lexical_score,
+                        hybrid_score=context.hybrid_score,
                         rerank_score=context.rerank_score,
                         score=context.score,
                     )
@@ -78,6 +82,8 @@ def answer_question(
                         page_end=context.page_end,
                         text=context.text,
                         dense_score=context.dense_score,
+                        lexical_score=context.lexical_score,
+                        hybrid_score=context.hybrid_score,
                         rerank_score=context.rerank_score,
                         score=context.score,
                     )

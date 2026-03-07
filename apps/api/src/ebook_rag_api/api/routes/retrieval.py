@@ -35,6 +35,8 @@ def search_document_chunks(
                 page_end=match.chunk.page_end,
                 text=match.chunk.text,
                 dense_score=match.dense_score,
+                lexical_score=match.lexical_score,
+                hybrid_score=match.hybrid_score,
                 rerank_score=match.rerank_score,
                 score=match.score,
             )

@@ -1,7 +1,7 @@
 import re
 from dataclasses import dataclass
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session, joinedload
 
 from ebook_rag_api.core.config import get_settings
@@ -11,14 +11,25 @@ from ebook_rag_api.services.embeddings import get_embedding_provider
 from ebook_rag_api.services.reranking import TokenOverlapReranker, get_reranker
 
 WHITESPACE_RE = re.compile(r"\s+")
+TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
 
 
 @dataclass(frozen=True)
 class ChunkSearchMatch:
     chunk: DocumentChunk
     dense_score: float
+    lexical_score: float
+    hybrid_score: float
     rerank_score: float
     score: float
+
+
+@dataclass(frozen=True)
+class HybridCandidate:
+    chunk: DocumentChunk
+    dense_score: float
+    lexical_score: float
+    hybrid_score: float
 
 
 def normalize_query(text: str) -> str:
@@ -49,7 +60,43 @@ def search_chunks(
     settings = get_settings()
     provider = get_embedding_provider()
     query_embedding = provider.embed_texts([normalized_query])[0]
+    candidate_limit = max(top_k, top_k * settings.rerank_candidate_multiplier)
 
+    dense_matches = search_dense_candidates(
+        session=session,
+        query_embedding=query_embedding,
+        candidate_limit=candidate_limit,
+        document_id=document_id,
+    )
+    lexical_matches = (
+        search_lexical_candidates(
+            session=session,
+            query=normalized_query,
+            candidate_limit=candidate_limit,
+            document_id=document_id,
+        )
+        if settings.retrieval_enable_lexical
+        else []
+    )
+
+    fused_candidates = fuse_candidates(
+        dense_matches=dense_matches,
+        lexical_matches=lexical_matches,
+        candidate_limit=candidate_limit,
+    )
+    return normalized_query, rerank_matches(
+        query=normalized_query,
+        fused_candidates=fused_candidates,
+        top_k=top_k,
+    )
+
+
+def search_dense_candidates(
+    session: Session,
+    query_embedding: list[float],
+    candidate_limit: int,
+    document_id: str | None = None,
+) -> list[tuple[DocumentChunk, float]]:
     bind = session.get_bind()
     if bind is not None and is_postgresql_dialect(bind.dialect.name):
         score_expression = (1 - DocumentChunk.embedding_vector.cosine_distance(query_embedding)).label(
@@ -66,26 +113,15 @@ def search_chunks(
         if document_id is not None:
             statement = statement.where(DocumentChunk.document_id == document_id)
 
-        candidate_limit = max(top_k, top_k * settings.rerank_candidate_multiplier)
         statement = statement.order_by(
             desc(score_expression),
             DocumentChunk.page_start.asc(),
             DocumentChunk.chunk_index.asc(),
         ).limit(candidate_limit)
         rows = session.execute(statement).all()
-        dense_matches = [(row[0], row[1]) for row in rows]
-        return normalized_query, rerank_matches(normalized_query, dense_matches, top_k)
+        return [(row[0], float(row[1])) for row in rows]
 
-    statement = (
-        select(DocumentChunk)
-        .join(Document)
-        .options(joinedload(DocumentChunk.document))
-        .where(Document.status == "ready")
-    )
-    if document_id is not None:
-        statement = statement.where(DocumentChunk.document_id == document_id)
-
-    candidates = list(session.scalars(statement))
+    candidates = load_ready_chunks(session=session, document_id=document_id)
     scored_matches: list[tuple[DocumentChunk, float]] = []
     for chunk in candidates:
         if (
@@ -97,43 +133,189 @@ def search_chunks(
         scored_matches.append((chunk, score))
 
     scored_matches.sort(key=lambda item: (-item[1], item[0].page_start, item[0].chunk_index))
-    candidate_limit = max(top_k, top_k * settings.rerank_candidate_multiplier)
-    return normalized_query, rerank_matches(
-        normalized_query,
-        scored_matches[:candidate_limit],
-        top_k,
+    return scored_matches[:candidate_limit]
+
+
+def search_lexical_candidates(
+    session: Session,
+    query: str,
+    candidate_limit: int,
+    document_id: str | None = None,
+) -> list[tuple[DocumentChunk, float]]:
+    if not query:
+        return []
+
+    bind = session.get_bind()
+    if bind is not None and is_postgresql_dialect(bind.dialect.name):
+        query_text = func.concat(func.coalesce(DocumentChunk.heading, ""), " ", DocumentChunk.text)
+        ts_vector = func.to_tsvector("english", query_text)
+        ts_query = func.plainto_tsquery("english", query)
+        score_expression = func.ts_rank_cd(ts_vector, ts_query).label("lexical_score")
+        statement = (
+            select(DocumentChunk, score_expression)
+            .join(Document)
+            .options(joinedload(DocumentChunk.document))
+            .where(Document.status == "ready")
+            .where(score_expression > 0)
+        )
+        if document_id is not None:
+            statement = statement.where(DocumentChunk.document_id == document_id)
+
+        statement = statement.order_by(
+            desc(score_expression),
+            DocumentChunk.page_start.asc(),
+            DocumentChunk.chunk_index.asc(),
+        ).limit(candidate_limit)
+        rows = session.execute(statement).all()
+        return [(row[0], float(row[1])) for row in rows]
+
+    scored_matches: list[tuple[DocumentChunk, float]] = []
+    for chunk in load_ready_chunks(session=session, document_id=document_id):
+        score = lexical_overlap_score(query=query, text=chunk.text, heading=chunk.heading)
+        if score <= 0:
+            continue
+        scored_matches.append((chunk, score))
+
+    scored_matches.sort(key=lambda item: (-item[1], item[0].page_start, item[0].chunk_index))
+    return scored_matches[:candidate_limit]
+
+
+def load_ready_chunks(
+    session: Session,
+    document_id: str | None = None,
+) -> list[DocumentChunk]:
+    statement = (
+        select(DocumentChunk)
+        .join(Document)
+        .options(joinedload(DocumentChunk.document))
+        .where(Document.status == "ready")
     )
+    if document_id is not None:
+        statement = statement.where(DocumentChunk.document_id == document_id)
+    return list(session.scalars(statement))
+
+
+def lexical_overlap_score(query: str, text: str, heading: str | None = None) -> float:
+    query_terms = tokenize_for_search(query)
+    if not query_terms:
+        return 0.0
+
+    searchable_text = f"{heading or ''} {text}".strip()
+    passage_terms = tokenize_for_search(searchable_text)
+    if not passage_terms:
+        return 0.0
+
+    overlap = query_terms & passage_terms
+    if not overlap:
+        return 0.0
+
+    coverage = len(overlap) / len(query_terms)
+    precision = len(overlap) / len(passage_terms)
+    phrase_bonus = 0.15 if contains_query_phrase(query, searchable_text) else 0.0
+    heading_bonus = 0.1 if heading and (query_terms & tokenize_for_search(heading)) else 0.0
+    return coverage * 0.7 + precision * 0.2 + phrase_bonus + heading_bonus
+
+
+def tokenize_for_search(text: str) -> set[str]:
+    return {token for token in TOKEN_RE.findall(text.lower()) if len(token) > 1}
+
+
+def contains_query_phrase(query: str, text: str) -> bool:
+    normalized_query = " ".join(TOKEN_RE.findall(query.lower()))
+    normalized_text = " ".join(TOKEN_RE.findall(text.lower()))
+    return bool(normalized_query and normalized_query in normalized_text)
+
+
+def fuse_candidates(
+    dense_matches: list[tuple[DocumentChunk, float]],
+    lexical_matches: list[tuple[DocumentChunk, float]],
+    candidate_limit: int,
+) -> list[HybridCandidate]:
+    settings = get_settings()
+    dense_ranks = {chunk.id: index for index, (chunk, _) in enumerate(dense_matches, start=1)}
+    lexical_ranks = {chunk.id: index for index, (chunk, _) in enumerate(lexical_matches, start=1)}
+    dense_scores = {chunk.id: score for chunk, score in dense_matches}
+    lexical_scores = {chunk.id: score for chunk, score in lexical_matches}
+    chunks_by_id = {chunk.id: chunk for chunk, _ in dense_matches}
+    chunks_by_id.update({chunk.id: chunk for chunk, _ in lexical_matches})
+
+    raw_hybrid_scores: dict[str, float] = {}
+    for chunk_id in chunks_by_id:
+        dense_component = reciprocal_rank_score(
+            rank=dense_ranks.get(chunk_id),
+            weight=settings.retrieval_dense_weight,
+            rrf_k=settings.retrieval_rrf_k,
+        )
+        lexical_component = reciprocal_rank_score(
+            rank=lexical_ranks.get(chunk_id),
+            weight=settings.retrieval_lexical_weight,
+            rrf_k=settings.retrieval_rrf_k,
+        )
+        raw_hybrid_scores[chunk_id] = dense_component + lexical_component
+
+    max_hybrid_score = max(raw_hybrid_scores.values(), default=1.0)
+    candidates = [
+        HybridCandidate(
+            chunk=chunk,
+            dense_score=dense_scores.get(chunk_id, 0.0),
+            lexical_score=lexical_scores.get(chunk_id, 0.0),
+            hybrid_score=(raw_hybrid_scores.get(chunk_id, 0.0) / max_hybrid_score)
+            if max_hybrid_score
+            else 0.0,
+        )
+        for chunk_id, chunk in chunks_by_id.items()
+    ]
+    candidates.sort(
+        key=lambda item: (
+            -item.hybrid_score,
+            -item.lexical_score,
+            -item.dense_score,
+            item.chunk.page_start,
+            item.chunk.chunk_index,
+        )
+    )
+    return candidates[:candidate_limit]
+
+
+def reciprocal_rank_score(rank: int | None, weight: float, rrf_k: int) -> float:
+    if rank is None:
+        return 0.0
+    return weight / (rrf_k + rank)
 
 
 def rerank_matches(
     query: str,
-    dense_matches: list[tuple[DocumentChunk, float]],
+    fused_candidates: list[HybridCandidate],
     top_k: int,
 ) -> list[ChunkSearchMatch]:
-    if not dense_matches:
+    if not fused_candidates:
         return []
 
+    settings = get_settings()
     reranker = get_reranker()
-    passages = [chunk.text for chunk, _ in dense_matches]
+    passages = [candidate.chunk.text for candidate in fused_candidates]
     try:
         rerank_scores = reranker.score(query, passages)
     except Exception:
         rerank_scores = TokenOverlapReranker().score(query, passages)
     matches = [
         ChunkSearchMatch(
-            chunk=chunk,
-            dense_score=dense_score,
+            chunk=candidate.chunk,
+            dense_score=candidate.dense_score,
+            lexical_score=candidate.lexical_score,
+            hybrid_score=candidate.hybrid_score,
             rerank_score=rerank_score,
-            score=(dense_score * 0.35) + (rerank_score * 0.65),
+            score=(candidate.hybrid_score * (1 - settings.retrieval_rerank_weight))
+            + (rerank_score * settings.retrieval_rerank_weight),
         )
-        for (chunk, dense_score), rerank_score in zip(
-            dense_matches, rerank_scores, strict=True
-        )
+        for candidate, rerank_score in zip(fused_candidates, rerank_scores, strict=True)
     ]
     matches.sort(
         key=lambda item: (
             -item.score,
             -item.rerank_score,
+            -item.hybrid_score,
+            -item.lexical_score,
             -item.dense_score,
             item.chunk.page_start,
             item.chunk.chunk_index,

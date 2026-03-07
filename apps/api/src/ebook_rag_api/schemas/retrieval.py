@@ -19,6 +19,8 @@ class RetrievalMatch(BaseModel):
     page_end: int
     text: str
     dense_score: float
+    lexical_score: float
+    hybrid_score: float
     rerank_score: float
     score: float
 

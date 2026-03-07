@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     embedding_timeout_seconds: float = 30.0
     reranker_provider: str = "token_overlap"
     rerank_candidate_multiplier: int = 4
+    retrieval_enable_lexical: bool = True
+    retrieval_rrf_k: int = 20
+    retrieval_dense_weight: float = 0.6
+    retrieval_lexical_weight: float = 0.4
+    retrieval_rerank_weight: float = 0.65
     reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     reranker_base_url: str = "http://localhost:11434/v1"
     reranker_api_key: str = "not-needed"

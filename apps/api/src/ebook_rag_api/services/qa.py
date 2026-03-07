@@ -54,6 +54,8 @@ class RetrievedChunkContext:
     page_end: int
     text: str
     dense_score: float = 0.0
+    lexical_score: float = 0.0
+    hybrid_score: float = 0.0
     rerank_score: float = 0.0
     score: float = 0.0
 
@@ -300,6 +302,8 @@ def build_chunk_context(match: ChunkSearchMatch) -> RetrievedChunkContext:
         page_end=chunk.page_end,
         text=chunk.text,
         dense_score=match.dense_score,
+        lexical_score=match.lexical_score,
+        hybrid_score=match.hybrid_score,
         rerank_score=match.rerank_score,
         score=match.score,
     )
