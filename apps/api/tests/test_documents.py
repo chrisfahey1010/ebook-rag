@@ -68,6 +68,32 @@ def test_upload_rejects_invalid_pdf_bytes(client: TestClient) -> None:
     assert payload["ingestion_error"] == "PDF extraction failed."
 
 
+def test_upload_marks_ingestion_failed_when_embedding_generation_breaks(
+    client: TestClient, pdf_factory, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        "ebook_rag_api.services.extraction.get_embedding_provider",
+        lambda: (_ for _ in ()).throw(RuntimeError("embedding backend unavailable")),
+    )
+
+    response = client.post(
+        "/api/documents/upload",
+        files={
+            "file": (
+                "sample.pdf",
+                pdf_factory(["First page heading\n\n" + "alpha " * 130]),
+                "application/pdf",
+            )
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["document"]["status"] == "failed"
+    assert payload["ingestion_status"] == "failed"
+    assert payload["ingestion_error"] == "Embedding generation failed."
+
+
 def test_upload_rejects_duplicate_pdf(client: TestClient, pdf_factory) -> None:
     pdf_bytes = pdf_factory(["Duplicate text"])
     files = {"file": ("sample.pdf", pdf_bytes, "application/pdf")}

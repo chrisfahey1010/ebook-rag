@@ -213,12 +213,14 @@ def get_answer_provider() -> AnswerProvider:
         return ExtractiveAnswerProvider()
     if settings.answer_provider == "openai_compatible":
         return OpenAICompatibleAnswerProvider(
-            base_url=settings.llm_base_url,
-            api_key=settings.llm_api_key,
-            model=settings.llm_model,
-            timeout_seconds=settings.llm_timeout_seconds,
-            temperature=settings.llm_temperature,
-            max_tokens=settings.llm_max_tokens,
+            base_url=settings.answer_base_url or settings.llm_base_url,
+            api_key=settings.answer_api_key or settings.llm_api_key,
+            model=settings.answer_model or settings.llm_model,
+            timeout_seconds=settings.answer_timeout_seconds or settings.llm_timeout_seconds,
+            temperature=settings.answer_temperature
+            if settings.answer_temperature is not None
+            else settings.llm_temperature,
+            max_tokens=settings.answer_max_tokens or settings.llm_max_tokens,
         )
     raise ValueError(f"Unsupported answer provider: {settings.answer_provider}")
 

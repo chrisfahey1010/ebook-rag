@@ -90,7 +90,7 @@ def search_chunks(
     for chunk in candidates:
         if (
             chunk.embedding_vector is None
-            or chunk.embedding_dimensions != settings.embedding_dimensions
+            or chunk.embedding_dimensions != len(query_embedding)
         ):
             continue
         score = cosine_similarity(query_embedding, chunk.embedding_vector)

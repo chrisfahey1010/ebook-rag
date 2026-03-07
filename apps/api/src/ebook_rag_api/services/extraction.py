@@ -48,15 +48,12 @@ def run_extraction_pipeline(
     try:
         page_count, pages = extract_document_pages(Path(document.file_path))
     except Exception:
-        session.rollback()
-        document.status = "failed"
-        ingestion_job.status = "failed"
-        ingestion_job.error_message = "PDF extraction failed."
-        ingestion_job.finished_at = datetime.now(UTC)
-        session.commit()
-        session.refresh(document)
-        session.refresh(ingestion_job)
-        return document, ingestion_job
+        return _mark_ingestion_failed(
+            session=session,
+            document=document,
+            ingestion_job=ingestion_job,
+            error_message="PDF extraction failed.",
+        )
 
     document.pages.clear()
     for page in pages:
@@ -66,8 +63,17 @@ def run_extraction_pipeline(
     for chunk in build_document_chunks(document.pages):
         document.chunks.append(chunk)
 
-    provider = get_embedding_provider()
-    chunk_embeddings = provider.embed_texts([chunk.text for chunk in document.chunks])
+    try:
+        provider = get_embedding_provider()
+        chunk_embeddings = provider.embed_texts([chunk.text for chunk in document.chunks])
+    except Exception:
+        return _mark_ingestion_failed(
+            session=session,
+            document=document,
+            ingestion_job=ingestion_job,
+            error_message="Embedding generation failed.",
+        )
+
     for chunk, embedding in zip(document.chunks, chunk_embeddings, strict=True):
         chunk.embedding_dimensions = provider.dimensions
         chunk.embedding_vector = embedding
@@ -76,6 +82,24 @@ def run_extraction_pipeline(
     document.status = "ready"
     ingestion_job.status = "completed"
     ingestion_job.error_message = None
+    ingestion_job.finished_at = datetime.now(UTC)
+    session.commit()
+    session.refresh(document)
+    session.refresh(ingestion_job)
+    return document, ingestion_job
+
+
+def _mark_ingestion_failed(
+    *,
+    session: Session,
+    document: Document,
+    ingestion_job: IngestionJob,
+    error_message: str,
+) -> tuple[Document, IngestionJob]:
+    session.rollback()
+    document.status = "failed"
+    ingestion_job.status = "failed"
+    ingestion_job.error_message = error_message
     ingestion_job.finished_at = datetime.now(UTC)
     session.commit()
     session.refresh(document)
