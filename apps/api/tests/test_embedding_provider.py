@@ -71,7 +71,7 @@ def test_openai_compatible_embedding_provider_posts_embeddings_request(monkeypat
     assert fake_client.calls[0]["headers"]["Authorization"] == "Bearer secret"
 
 
-def test_sentence_transformer_embedding_provider_adapts_dimensions(monkeypatch) -> None:
+def test_sentence_transformer_embedding_provider_normalizes_matching_dimensions(monkeypatch) -> None:
     class _FakeSentenceTransformer:
         def __init__(self, model_name: str) -> None:
             self.model_name = model_name
@@ -99,15 +99,52 @@ def test_sentence_transformer_embedding_provider_adapts_dimensions(monkeypatch) 
 
     provider = SentenceTransformerEmbeddingProvider(
         model_name="sentence-transformers/all-MiniLM-L6-v2",
-        dimensions=2,
+        dimensions=4,
     )
     embeddings = provider.embed_texts(["alpha", "beta"])
-
     assert provider.model_name == "sentence-transformers/all-MiniLM-L6-v2"
     assert len(embeddings) == 2
-    assert all(len(embedding) == 2 for embedding in embeddings)
-    assert embeddings[0] == pytest.approx([0.5547001962, 0.8320502943])
-    assert embeddings[1] == pytest.approx([0.8320502943, 0.5547001962])
+    assert all(len(embedding) == 4 for embedding in embeddings)
+    assert embeddings[0] == pytest.approx(
+        [0.1825741858, 0.3651483717, 0.5477225575, 0.7302967433]
+    )
+    assert embeddings[1] == pytest.approx(
+        [0.7302967433, 0.5477225575, 0.3651483717, 0.1825741858]
+    )
+
+
+def test_sentence_transformer_embedding_provider_raises_for_dimension_mismatch(
+    monkeypatch,
+) -> None:
+    class _FakeSentenceTransformer:
+        def __init__(self, model_name: str) -> None:
+            self.model_name = model_name
+
+        def encode(
+            self,
+            texts: list[str],
+            *,
+            convert_to_numpy: bool,
+            normalize_embeddings: bool,
+        ) -> list[list[float]]:
+            assert convert_to_numpy is True
+            assert normalize_embeddings is True
+            assert texts == ["alpha"]
+            return [[1.0, 2.0, 3.0, 4.0]]
+
+    monkeypatch.setitem(
+        sys.modules,
+        "sentence_transformers",
+        types.SimpleNamespace(SentenceTransformer=_FakeSentenceTransformer),
+    )
+
+    provider = SentenceTransformerEmbeddingProvider(
+        model_name="sentence-transformers/all-MiniLM-L6-v2",
+        dimensions=2,
+    )
+
+    with pytest.raises(RuntimeError, match="returned 4 dimensions, expected 2"):
+        provider.embed_texts(["alpha"])
 
 
 def test_get_embedding_provider_uses_environment_configuration(monkeypatch) -> None:
@@ -148,3 +185,24 @@ def test_openai_compatible_embedding_provider_raises_for_count_mismatch(monkeypa
 
     with pytest.raises(RuntimeError, match="unexpected number of embeddings"):
         provider.embed_texts(["alpha", "beta"])
+
+
+def test_openai_compatible_embedding_provider_raises_for_dimension_mismatch(
+    monkeypatch,
+) -> None:
+    fake_client = _FakeClient({"data": [{"embedding": [1.0, 0.0, 0.0]}]})
+    monkeypatch.setattr(
+        "ebook_rag_api.services.embeddings.httpx.Client",
+        lambda timeout: fake_client,
+    )
+
+    provider = OpenAICompatibleEmbeddingProvider(
+        base_url="http://localhost:11434/v1",
+        api_key="secret",
+        model="nomic-embed-text",
+        dimensions=4,
+        timeout_seconds=5.0,
+    )
+
+    with pytest.raises(RuntimeError, match="returned 3 dimensions, expected 4"):
+        provider.embed_texts(["alpha"])

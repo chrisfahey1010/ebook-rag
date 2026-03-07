@@ -217,3 +217,79 @@ def test_delete_document_returns_not_found_for_unknown_id(client: TestClient) ->
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Document not found."
+
+
+def test_ingestion_status_returns_latest_job(client: TestClient, pdf_factory) -> None:
+    upload_response = client.post(
+        "/api/documents/upload",
+        files={
+            "file": (
+                "sample.pdf",
+                pdf_factory(["Intro paragraph\n\n" + "gamma " * 140]),
+                "application/pdf",
+            )
+        },
+    )
+
+    document_id = upload_response.json()["document"]["id"]
+    response = client.get(f"/api/ingestion/{document_id}/status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["document"]["id"] == document_id
+    assert payload["ingestion_job"]["status"] == "completed"
+    assert payload["ingestion_job"]["document_id"] == document_id
+
+
+def test_reprocess_document_reruns_ingestion(
+    client: TestClient, pdf_factory, monkeypatch, session_factory
+) -> None:
+    upload_response = client.post(
+        "/api/documents/upload",
+        files={
+            "file": (
+                "sample.pdf",
+                pdf_factory(["Original paragraph\n\n" + "alpha " * 140]),
+                "application/pdf",
+            )
+        },
+    )
+    document_id = upload_response.json()["document"]["id"]
+
+    class _ShortEmbeddingProvider:
+        dimensions = 4
+
+        def embed_texts(self, texts: list[str]) -> list[list[float]]:
+            return [[1.0, 0.0, 0.0, 0.0] for _ in texts]
+
+    monkeypatch.setattr(
+        "ebook_rag_api.services.extraction.get_embedding_provider",
+        lambda: _ShortEmbeddingProvider(),
+    )
+
+    response = client.post(f"/api/ingestion/{document_id}/reprocess")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["document"]["id"] == document_id
+    assert payload["document"]["status"] == "ready"
+    assert payload["ingestion_job"]["status"] == "completed"
+    with session_factory() as session:
+        chunks = list(
+            session.scalars(
+                select(DocumentChunk)
+                .where(DocumentChunk.document_id == document_id)
+                .order_by(DocumentChunk.chunk_index.asc())
+            )
+        )
+
+    assert chunks
+    assert all(chunk.embedding_dimensions == 4 for chunk in chunks)
+    assert all(chunk.embedding_vector == [1.0, 0.0, 0.0, 0.0] for chunk in chunks)
+
+
+def test_ingestion_status_returns_not_found_for_unknown_id(client: TestClient) -> None:
+    response = client.get("/api/ingestion/missing-document/status")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Document not found."

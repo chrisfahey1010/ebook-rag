@@ -90,6 +90,7 @@ Current implementation includes:
 - PDF upload, file registration, and PyMuPDF extraction
 - persisted per-page text and paragraph-aware chunks
 - chunk embeddings generated during ingestion
+- ingestion status lookup and document reprocessing endpoints
 - pluggable embedding providers with hashing, local `sentence-transformers`, and OpenAI-compatible adapters
 - document ingestion statuses with chunk metadata
 - document listing and detail endpoints
@@ -108,7 +109,7 @@ Current implementation includes:
 
 Current limitations:
 
-- embeddings are currently stored in a fixed 128-dimension schema, so larger model outputs are adapted to fit the current `pgvector` column
+- PostgreSQL vector storage now follows the configured embedding dimension, but changing dimensions requires running migrations and reprocessing existing documents
 - context assembly is still heuristic and citations are selected from the final context window rather than from a richer answer-trace model
 - retrieval quality is now measurable, but benchmark results should be refreshed and compared after additional retrieval improvements
 
@@ -119,11 +120,15 @@ Current limitations:
 - `GET /api/documents/{document_id}`
 - `DELETE /api/documents/{document_id}`
 - `POST /api/documents/upload`
+- `GET /api/ingestion/{document_id}/status`
+- `POST /api/ingestion/{document_id}/reprocess`
 - `POST /api/retrieval/search`
 - `POST /api/qa/ask`
 - `POST /api/debug/retrieve`
 
 Upload registers the PDF, computes its SHA-256 checksum, stores the file locally, extracts per-page text with PyMuPDF, builds paragraph-aware chunks with page spans and token estimates, generates embeddings, persists the records, and returns document plus ingestion status metadata.
+
+Reprocessing reruns extraction and embedding generation for an existing document, which is useful after changing embedding models or dimensions.
 
 Retrieval accepts a natural-language query, embeds it, blends dense and lexical candidates, reranks them, and returns ranked matches with document metadata, page spans, dense, lexical, hybrid, rerank, and final scores. If a configured reranker backend fails at runtime, retrieval falls back to the local token-overlap reranker so the request still completes.
 

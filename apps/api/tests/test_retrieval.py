@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from ebook_rag_api.core.config import get_settings
 from ebook_rag_api.models import DocumentChunk
 
 
@@ -31,9 +32,9 @@ def test_upload_persists_chunk_embeddings(
         )
 
     assert chunks
-    assert all(chunk.embedding_dimensions == 128 for chunk in chunks)
+    assert all(chunk.embedding_dimensions == get_settings().embedding_dimensions for chunk in chunks)
     assert all(isinstance(chunk.embedding_vector, list) for chunk in chunks)
-    assert all(len(chunk.embedding_vector) == 128 for chunk in chunks)
+    assert all(len(chunk.embedding_vector) == get_settings().embedding_dimensions for chunk in chunks)
 
 
 def test_retrieval_search_returns_ranked_matches(
@@ -240,8 +241,10 @@ def test_retrieval_can_surface_lexical_matches_when_dense_scores_are_flat(
     assert upload.status_code == 201
 
     class _ZeroEmbeddingProvider:
+        dimensions = get_settings().embedding_dimensions
+
         def embed_texts(self, texts: list[str]) -> list[list[float]]:
-            return [[0.0] * 128 for _ in texts]
+            return [[0.0] * self.dimensions for _ in texts]
 
     monkeypatch.setattr(
         "ebook_rag_api.services.retrieval.get_embedding_provider",

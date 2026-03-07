@@ -30,8 +30,8 @@ The main gap is that several critical pieces are still baseline implementations:
   - reranking now supports token overlap, local cross-encoders, and an OpenAI-compatible adapter
   - answer generation still needs clearer local-runtime presets and documentation
 - context assembly is improved but still heuristic rather than benchmark-tuned
-- the current vector schema is fixed at 128 dimensions, so larger embedding outputs are adapted into the existing storage shape
-- ingestion is synchronous and lacks reprocessing/status APIs from the spec
+- changing embedding dimensions now requires a migration plus document reprocessing, so the reindex workflow needs to stay explicit in docs and tooling
+- ingestion is still synchronous, even though status and reprocessing APIs from the spec are now in place
 - evaluation exists, but the benchmark set and regression workflow are still minimal
 
 ## Planning principles
@@ -92,10 +92,10 @@ This milestone is in progress. The embedding and reranker halves are now impleme
   - `OpenAICompatibleEmbeddingProvider`
   - `CrossEncoderReranker`
   - `OpenAICompatibleReranker`
+  - configurable pgvector dimensions with a reprocess workflow for existing documents
   - provider-selection and failure-handling tests for embeddings and reranking
 - remaining:
   - document supported local presets for Ollama and llama.cpp-style OpenAI-compatible servers
-  - decide whether the fixed 128-dimension vector schema remains acceptable for V1 or should be migrated before retrieval tuning
   - expand answer-provider documentation so mixed-mode setups are explicit rather than implied
 
 #### Why this comes first
@@ -166,20 +166,21 @@ The ingestion pipeline works, but it is still closer to a synchronous MVP than t
 
 #### Backend work
 
-- add ingestion APIs from the spec:
+- completed:
   - `GET /api/ingestion/{document_id}/status`
   - `POST /api/ingestion/{document_id}/reprocess`
-- improve text normalization:
-  - detect repeated headers/footers where feasible
-  - preserve headings more intentionally
-  - keep page mappings explicit
-- improve chunk metadata:
-  - heading or section label when detectable
-  - chunk character span or provenance metadata if useful
-- revisit chunk sizing:
-  - current chunking is much smaller than the spec target
-  - benchmark a few chunk sizes instead of choosing by intuition
-- decide whether ingestion remains synchronous for V1 or moves to background jobs
+- remaining:
+  - improve text normalization:
+    - detect repeated headers/footers where feasible
+    - preserve headings more intentionally
+    - keep page mappings explicit
+  - improve chunk metadata:
+    - heading or section label when detectable
+    - chunk character span or provenance metadata if useful
+  - revisit chunk sizing:
+    - current chunking is much smaller than the spec target
+    - benchmark a few chunk sizes instead of choosing by intuition
+  - decide whether ingestion remains synchronous for V1 or moves to background jobs
 
 #### Recommendation
 

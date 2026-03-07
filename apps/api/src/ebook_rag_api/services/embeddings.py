@@ -63,7 +63,7 @@ class SentenceTransformerEmbeddingProvider:
             convert_to_numpy=True,
             normalize_embeddings=True,
         )
-        return [_coerce_embedding_dimensions(vector, self.dimensions) for vector in encoded]
+        return [_validate_embedding_dimensions(vector, self.dimensions) for vector in encoded]
 
 
 class OpenAICompatibleEmbeddingProvider:
@@ -107,7 +107,7 @@ class OpenAICompatibleEmbeddingProvider:
         if len(data) != len(texts):
             raise RuntimeError("Embedding provider returned an unexpected number of embeddings.")
         return [
-            _coerce_embedding_dimensions(item.get("embedding", []), self.dimensions)
+            _validate_embedding_dimensions(item.get("embedding", []), self.dimensions)
             for item in data
         ]
 
@@ -135,18 +135,16 @@ def get_embedding_provider() -> EmbeddingProvider:
     )
 
 
-def _coerce_embedding_dimensions(vector: Sequence[float], dimensions: int) -> list[float]:
+def _validate_embedding_dimensions(vector: Sequence[float], dimensions: int) -> list[float]:
     if dimensions <= 0:
         raise ValueError("Embedding dimensions must be positive.")
 
     values = [float(value) for value in vector]
     if len(values) == dimensions:
         return _normalize_vector(values)
-
-    folded = [0.0] * dimensions
-    for index, value in enumerate(values):
-        folded[index % dimensions] += value
-    return _normalize_vector(folded)
+    raise RuntimeError(
+        f"Embedding provider returned {len(values)} dimensions, expected {dimensions}."
+    )
 
 
 def _normalize_vector(vector: list[float]) -> list[float]:

@@ -56,10 +56,12 @@ def run_extraction_pipeline(
         )
 
     document.pages.clear()
+    session.flush()
     for page in pages:
         document.pages.append(page)
 
     document.chunks.clear()
+    session.flush()
     for chunk in build_document_chunks(document.pages):
         document.chunks.append(chunk)
 

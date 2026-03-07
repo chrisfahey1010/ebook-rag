@@ -5,7 +5,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ebook_rag_api.api.router import api_router
 from ebook_rag_api.core.config import get_settings
-from ebook_rag_api.db.vector import EMBEDDING_DIMENSIONS
 
 
 @asynccontextmanager
@@ -17,11 +16,6 @@ async def lifespan(_: FastAPI):
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    if settings.embedding_dimensions != EMBEDDING_DIMENSIONS:
-        raise ValueError(
-            "The configured embedding dimensions do not match the current pgvector schema."
-        )
-
     # Keeping construction in a factory makes later test setup and settings
     # overrides straightforward without introducing framework-heavy patterns.
     application = FastAPI(
