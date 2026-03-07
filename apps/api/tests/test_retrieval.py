@@ -216,6 +216,66 @@ def test_debug_document_chunks_returns_persisted_chunk_metadata(
     assert "inspect the seals" in payload["chunks"][0]["text"].lower()
 
 
+def test_retrieval_prefers_exact_anchor_terms_for_named_entity_facts(
+    client: TestClient, pdf_factory
+) -> None:
+    exact_upload = client.post(
+        "/api/documents/upload",
+        files={
+            "file": (
+                "history.pdf",
+                pdf_factory(
+                    [
+                        (
+                            "Preface\n\nCarey McWilliams asked Hunter S. Thompson "
+                            "to write the original article on motorcycle gangs. "
+                            "The article appeared in April 1965."
+                        )
+                    ]
+                ),
+                "application/pdf",
+            )
+        },
+    )
+    adjacent_upload = client.post(
+        "/api/documents/upload",
+        files={
+            "file": (
+                "overview.pdf",
+                pdf_factory(
+                    [
+                        (
+                            "Magazine history\n\nAn editor asked Thompson to report "
+                            "on motorcycle gangs for a national publication before "
+                            "the book project expanded."
+                        )
+                    ]
+                ),
+                "application/pdf",
+            )
+        },
+    )
+
+    assert exact_upload.status_code == 201
+    assert adjacent_upload.status_code == 201
+    exact_document_id = exact_upload.json()["document"]["id"]
+
+    response = client.post(
+        "/api/retrieval/search",
+        json={
+            "query": "Who asked Hunter S. Thompson to write the original article on motorcycle gangs and when did it appear?",
+            "top_k": 3,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["matches"]
+    assert payload["matches"][0]["document_id"] == exact_document_id
+    assert "carey mcwilliams" in payload["matches"][0]["text"].lower()
+    assert "1965" in payload["matches"][0]["text"]
+
+
 def test_debug_rerank_returns_ranked_scores_for_explicit_passages(
     client: TestClient,
 ) -> None:

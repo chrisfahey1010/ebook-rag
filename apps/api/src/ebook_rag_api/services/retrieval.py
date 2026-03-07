@@ -10,7 +10,9 @@ from ebook_rag_api.services.embeddings import get_embedding_provider
 from ebook_rag_api.services.reranking import TokenOverlapReranker, get_reranker
 from ebook_rag_api.services.text import (
     contains_normalized_phrase,
+    extract_anchor_terms,
     normalize_query_text,
+    normalized_token_sequence,
     tokenize_terms,
 )
 
@@ -81,6 +83,7 @@ def search_chunks(
     )
 
     fused_candidates = fuse_candidates(
+        query=normalized_query,
         dense_matches=dense_matches,
         lexical_matches=lexical_matches,
         candidate_limit=candidate_limit,
@@ -210,11 +213,26 @@ def lexical_overlap_score(query: str, text: str, heading: str | None = None) -> 
     if not overlap:
         return 0.0
 
+    anchor_terms = extract_anchor_terms(query)
+    anchor_overlap = anchor_terms & passage_terms
     coverage = len(overlap) / len(query_terms)
     precision = len(overlap) / len(passage_terms)
+    anchor_coverage = len(anchor_overlap) / len(anchor_terms) if anchor_terms else 0.0
+    anchor_precision = len(anchor_overlap) / len(passage_terms) if anchor_overlap else 0.0
     phrase_bonus = 0.15 if contains_query_phrase(query, searchable_text) else 0.0
     heading_bonus = 0.1 if heading and (query_terms & tokenize_for_search(heading)) else 0.0
-    return coverage * 0.7 + precision * 0.2 + phrase_bonus + heading_bonus
+    anchor_bonus = (
+        anchor_coverage * 0.35
+        + anchor_precision * 0.1
+        + _ordered_anchor_pair_bonus(query, searchable_text)
+    )
+    return (
+        coverage * 0.45
+        + precision * 0.1
+        + phrase_bonus
+        + heading_bonus
+        + anchor_bonus
+    )
 
 
 def tokenize_for_search(text: str) -> set[str]:
@@ -226,6 +244,7 @@ def contains_query_phrase(query: str, text: str) -> bool:
 
 
 def fuse_candidates(
+    query: str,
     dense_matches: list[tuple[DocumentChunk, float]],
     lexical_matches: list[tuple[DocumentChunk, float]],
     candidate_limit: int,
@@ -250,7 +269,15 @@ def fuse_candidates(
             weight=settings.retrieval_lexical_weight,
             rrf_k=settings.retrieval_rrf_k,
         )
-        raw_hybrid_scores[chunk_id] = dense_component + lexical_component
+        specificity_bonus = min(
+            1.0,
+            lexical_overlap_score(
+                query=query,
+                text=chunks_by_id[chunk_id].text,
+                heading=chunks_by_id[chunk_id].heading,
+            ),
+        )
+        raw_hybrid_scores[chunk_id] = dense_component + lexical_component + specificity_bonus * 0.35
 
     max_hybrid_score = max(raw_hybrid_scores.values(), default=1.0)
     candidates = [
@@ -280,6 +307,33 @@ def reciprocal_rank_score(rank: int | None, weight: float, rrf_k: int) -> float:
     if rank is None:
         return 0.0
     return weight / (rrf_k + rank)
+
+
+def _ordered_anchor_pair_bonus(query: str, text: str) -> float:
+    anchors = normalized_token_sequence(query, drop_stopwords=True)
+    if len(anchors) < 2:
+        return 0.0
+
+    normalized_text = normalized_token_sequence(text, drop_stopwords=True)
+    if len(normalized_text) < 2:
+        return 0.0
+
+    anchor_pairs = {
+        (left, right)
+        for left, right in zip(anchors, anchors[1:], strict=False)
+        if left != right
+    }
+    if not anchor_pairs:
+        return 0.0
+
+    text_pairs = {
+        (left, right)
+        for left, right in zip(normalized_text, normalized_text[1:], strict=False)
+    }
+    pair_overlap = len(anchor_pairs & text_pairs)
+    if pair_overlap == 0:
+        return 0.0
+    return min(0.2, pair_overlap / len(anchor_pairs) * 0.2)
 
 
 def rerank_matches(

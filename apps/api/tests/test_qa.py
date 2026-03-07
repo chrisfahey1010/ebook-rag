@@ -306,6 +306,85 @@ def test_extractive_provider_prefers_anchor_terms_over_repeated_verbs_in_multi_p
     assert [citation.page_start for citation in answer.citations] == [1, 5]
 
 
+def test_extractive_provider_rejects_semantically_adjacent_but_unsupported_questions() -> None:
+    provider = ExtractiveAnswerProvider()
+    contexts = [
+        RetrievedChunkContext(
+            chunk_id="chunk-1",
+            document_id="doc-1",
+            document_title="Book",
+            document_filename="book.pdf",
+            chunk_index=1,
+            page_start=12,
+            page_end=12,
+            text=(
+                "The press criticized the group heavily, and newspaper editors argued "
+                "about public responsibility and censorship."
+            ),
+            token_estimate=18,
+            score=0.92,
+            rerank_score=0.92,
+        ),
+        RetrievedChunkContext(
+            chunk_id="chunk-2",
+            document_id="doc-1",
+            document_title="Book",
+            document_filename="book.pdf",
+            chunk_index=2,
+            page_start=13,
+            page_end=13,
+            text=(
+                "Television coverage amplified the controversy, but the book does not "
+                "discuss online platforms or platform policy."
+            ),
+            token_estimate=19,
+            score=0.88,
+            rerank_score=0.88,
+        ),
+    ]
+
+    answer = provider.generate_answer(
+        question="What does the book say about social media moderation policies?",
+        contexts=contexts,
+    )
+
+    assert answer.supported is False
+    assert answer.citations == []
+
+
+def test_extractive_provider_can_answer_from_adjacent_sentence_span() -> None:
+    provider = ExtractiveAnswerProvider()
+    contexts = [
+        RetrievedChunkContext(
+            chunk_id="chunk-1",
+            document_id="doc-1",
+            document_title="Book",
+            document_filename="book.pdf",
+            chunk_index=1,
+            page_start=186,
+            page_end=186,
+            text=(
+                "Hunter S. Thompson is a freelance writer from San Francisco, Aspen, "
+                "and points east. A native of Louisville, Kentucky, he began writing "
+                "as a sports columnist."
+            ),
+            token_estimate=28,
+            score=0.94,
+            rerank_score=0.94,
+        ),
+    ]
+
+    answer = provider.generate_answer(
+        question="Where was Hunter Thompson a native of?",
+        contexts=contexts,
+    )
+
+    assert answer.supported is True
+    assert "louisville, kentucky" in answer.answer_text.lower()
+    assert answer.citations
+    assert answer.citations[0].page_start == 186
+
+
 def test_assemble_answer_contexts_skips_irrelevant_adjacent_chunks() -> None:
     contexts = [
         RetrievedChunkContext(

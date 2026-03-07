@@ -2,6 +2,7 @@ import re
 from dataclasses import dataclass
 from dataclasses import replace
 from functools import lru_cache
+from math import ceil
 from time import perf_counter
 from typing import Protocol
 
@@ -13,6 +14,7 @@ from ebook_rag_api.services.retrieval import ChunkSearchMatch, normalize_query, 
 from ebook_rag_api.services.text import (
     TOKEN_RE,
     contains_normalized_phrase,
+    extract_anchor_terms,
     tokenize_terms,
 )
 
@@ -57,6 +59,7 @@ class SentenceCandidate:
 class QuestionFacet:
     text: str
     terms: set[str]
+    anchor_terms: set[str]
 
 
 @dataclass(frozen=True)
@@ -108,6 +111,11 @@ class ExtractiveAnswerProvider:
             sentence_candidates=sentence_candidates,
         )
         if not selected_candidates:
+            return _unsupported_answer()
+        if not _answer_has_sufficient_support(
+            question_facets=question_facets,
+            selected_candidates=selected_candidates,
+        ):
             return _unsupported_answer()
 
         answer_text = " ".join(
@@ -498,11 +506,29 @@ def _split_sentences(text: str) -> list[str]:
     normalized_text = re.sub(r"\s*\n+\s*", " ", text).strip()
     if not normalized_text:
         return []
-    return [
+    raw_sentences = [
         sentence.strip()
         for sentence in SENTENCE_SPLIT_RE.split(normalized_text)
         if sentence.strip()
     ]
+    sentences: list[str] = []
+    pending_prefix = ""
+    for sentence in raw_sentences:
+        tokens = TOKEN_RE.findall(sentence)
+        if pending_prefix:
+            sentence = f"{pending_prefix} {sentence}".strip()
+            pending_prefix = ""
+            tokens = TOKEN_RE.findall(sentence)
+        if len(tokens) <= 2 and any(len(token) == 1 for token in tokens):
+            pending_prefix = sentence
+            continue
+        sentences.append(sentence)
+    if pending_prefix:
+        if sentences:
+            sentences[-1] = f"{sentences[-1]} {pending_prefix}".strip()
+        else:
+            sentences.append(pending_prefix)
+    return sentences
 
 
 def build_qa_prompt(question: str, contexts: list[RetrievedChunkContext]) -> str:
@@ -694,11 +720,14 @@ def _rank_contexts_for_selection(
     question_terms: set[str],
     contexts: list[RetrievedChunkContext],
 ) -> list[RetrievedChunkContext]:
+    anchor_terms = extract_anchor_terms(question)
+
     def sort_key(
         context: RetrievedChunkContext,
-    ) -> tuple[float, float, float, float, float, float, float]:
+    ) -> tuple[float, float, float, float, float, float, float, float]:
         context_terms = _tokenize(context.text)
         term_overlap = len(question_terms & context_terms)
+        anchor_overlap = len(anchor_terms & context_terms)
         normalized_overlap = _normalized_term_overlap(question_terms, context_terms)
         term_precision = (
             len(question_terms & context_terms) / max(len(context_terms), 1)
@@ -708,6 +737,7 @@ def _rank_contexts_for_selection(
         phrase_match = 1.0 if contains_normalized_phrase(question, context.text) else 0.0
         token_cost = max(context.token_estimate, _estimate_tokens(context.text), 1)
         return (
+            float(anchor_overlap),
             float(term_overlap),
             normalized_overlap,
             term_precision,
@@ -723,10 +753,17 @@ def _rank_contexts_for_selection(
 def _build_question_facets(question: str) -> list[QuestionFacet]:
     normalized_question = " ".join(question.split()).strip()
     base_terms = _tokenize(normalized_question)
+    anchor_terms = extract_anchor_terms(normalized_question)
     if not normalized_question or not base_terms:
         return []
     if not _question_needs_multi_sentence_answer(normalized_question):
-        return [QuestionFacet(text=normalized_question, terms=base_terms)]
+        return [
+            QuestionFacet(
+                text=normalized_question,
+                terms=base_terms,
+                anchor_terms=anchor_terms,
+            )
+        ]
 
     raw_facets = [
         fragment.strip(" ,;:")
@@ -734,7 +771,13 @@ def _build_question_facets(question: str) -> list[QuestionFacet]:
         if fragment.strip(" ,;:")
     ]
     if len(raw_facets) < 2:
-        return [QuestionFacet(text=normalized_question, terms=base_terms)]
+        return [
+            QuestionFacet(
+                text=normalized_question,
+                terms=base_terms,
+                anchor_terms=anchor_terms,
+            )
+        ]
 
     facets: list[QuestionFacet] = []
     seen_terms: set[frozenset[str]] = set()
@@ -747,9 +790,21 @@ def _build_question_facets(question: str) -> list[QuestionFacet]:
         if frozen_terms in seen_terms:
             continue
         seen_terms.add(frozen_terms)
-        facets.append(QuestionFacet(text=facet_text, terms=facet_terms))
+        facets.append(
+            QuestionFacet(
+                text=facet_text,
+                terms=facet_terms,
+                anchor_terms=extract_anchor_terms(facet_text),
+            )
+        )
 
-    return facets or [QuestionFacet(text=normalized_question, terms=base_terms)]
+    return facets or [
+        QuestionFacet(
+            text=normalized_question,
+            terms=base_terms,
+            anchor_terms=anchor_terms,
+        )
+    ]
 
 
 def _build_sentence_candidates(
@@ -760,28 +815,36 @@ def _build_sentence_candidates(
 ) -> list[SentenceCandidate]:
     candidates: list[SentenceCandidate] = []
     for context in contexts:
-        for sentence in _split_sentences(context.text):
-            if not sentence:
+        for sentence_span in _build_candidate_spans(_split_sentences(context.text)):
+            if not sentence_span:
                 continue
-            sentence_terms = _tokenize(sentence)
+            sentence_terms = _tokenize(sentence_span)
             if not sentence_terms:
                 continue
             overlap = len(question_terms & sentence_terms)
             if overlap == 0:
                 continue
+            anchor_terms = extract_anchor_terms(question)
+            anchor_overlap = len(anchor_terms & sentence_terms)
 
             lexical_score = overlap / max(len(question_terms), 1)
             precision = overlap / max(len(sentence_terms), 1)
-            phrase_bonus = 0.2 if contains_normalized_phrase(question, sentence) else 0.0
+            phrase_bonus = 0.2 if contains_normalized_phrase(question, sentence_span) else 0.0
             combined_score = (
                 lexical_score
+                + _anchor_support_score(
+                    anchor_terms=anchor_terms,
+                    matched_anchor_terms=anchor_terms & sentence_terms,
+                    candidate_terms=sentence_terms,
+                )
                 + precision * 0.35
                 + phrase_bonus
                 + max(context.score, 0.0) * 0.15
+                + (0.1 if anchor_overlap else 0.0)
             )
             candidates.append(
                 SentenceCandidate(
-                    sentence=sentence,
+                    sentence=sentence_span,
                     context=context,
                     score=combined_score,
                     terms=sentence_terms,
@@ -850,15 +913,23 @@ def _select_best_candidate_for_facet(
         facet_score = _score_sentence_against_text(
             prompt_text=facet.text,
             prompt_terms=facet.terms,
+            anchor_terms=facet.anchor_terms,
             candidate=candidate,
         )
         if facet_score < 0.2:
             continue
+        if not _candidate_satisfies_anchor_requirement(
+            facet=facet,
+            candidate=candidate,
+        ):
+            continue
+        anchor_matches = len(candidate.terms & facet.anchor_terms)
         added_terms = len((candidate.terms & facet.terms) - covered_terms)
         duplicate_penalty = 0.0 if added_terms else -0.2
         scored_candidates.append(
             (
                 (
+                    float(anchor_matches),
                     facet_score,
                     float(added_terms),
                     candidate.score + duplicate_penalty,
@@ -877,6 +948,7 @@ def _select_best_candidate_for_facet(
             -item[0][1],
             -item[0][2],
             -item[0][3],
+            -item[0][4],
             item[1].context.page_start,
             item[1].context.chunk_index,
         )
@@ -888,6 +960,7 @@ def _score_sentence_against_text(
     *,
     prompt_text: str,
     prompt_terms: set[str],
+    anchor_terms: set[str],
     candidate: SentenceCandidate,
 ) -> float:
     overlap = len(prompt_terms & candidate.terms)
@@ -896,7 +969,17 @@ def _score_sentence_against_text(
     lexical_score = overlap / max(len(prompt_terms), 1)
     precision = overlap / max(len(candidate.terms), 1)
     phrase_bonus = 0.2 if contains_normalized_phrase(prompt_text, candidate.sentence) else 0.0
-    return lexical_score + precision * 0.35 + phrase_bonus + max(candidate.context.score, 0.0) * 0.15
+    return (
+        lexical_score
+        + _anchor_support_score(
+            anchor_terms=anchor_terms,
+            matched_anchor_terms=anchor_terms & candidate.terms,
+            candidate_terms=candidate.terms,
+        )
+        + precision * 0.35
+        + phrase_bonus
+        + max(candidate.context.score, 0.0) * 0.15
+    )
 
 
 def _split_support_units(answer_text: str) -> list[str]:
@@ -935,3 +1018,64 @@ def _unsupported_answer() -> GeneratedAnswer:
         supported=False,
         citations=[],
     )
+
+
+def _anchor_support_score(
+    *,
+    anchor_terms: set[str],
+    matched_anchor_terms: set[str],
+    candidate_terms: set[str],
+) -> float:
+    if not anchor_terms:
+        return 0.0
+    coverage = len(matched_anchor_terms) / len(anchor_terms)
+    precision = len(matched_anchor_terms) / max(len(candidate_terms), 1)
+    return coverage * 0.5 + precision * 0.1
+
+
+def _required_anchor_matches(anchor_terms: set[str]) -> int:
+    if not anchor_terms:
+        return 0
+    if len(anchor_terms) == 1:
+        return 1
+    if len(anchor_terms) == 2:
+        return 2
+    return max(1, ceil(len(anchor_terms) * 0.5))
+
+
+def _candidate_satisfies_anchor_requirement(
+    *,
+    facet: QuestionFacet,
+    candidate: SentenceCandidate,
+) -> bool:
+    if not facet.anchor_terms:
+        return True
+    matched_anchor_terms = facet.anchor_terms & candidate.terms
+    return len(matched_anchor_terms) >= _required_anchor_matches(facet.anchor_terms)
+
+
+def _answer_has_sufficient_support(
+    *,
+    question_facets: list[QuestionFacet],
+    selected_candidates: list[SentenceCandidate],
+) -> bool:
+    if not selected_candidates:
+        return False
+
+    for facet in question_facets:
+        matched_candidates = [
+            candidate
+            for candidate in selected_candidates
+            if candidate.terms & facet.terms
+        ]
+        if not matched_candidates:
+            return False
+        if not facet.anchor_terms:
+            continue
+        matched_anchor_terms = set().union(
+            *(candidate.terms & facet.anchor_terms for candidate in matched_candidates)
+        )
+        if len(matched_anchor_terms) < _required_anchor_matches(facet.anchor_terms):
+            return False
+
+    return True

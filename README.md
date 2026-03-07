@@ -98,12 +98,14 @@ Current implementation includes:
 - PostgreSQL `pgvector` storage for chunk embeddings
 - dense retrieval executed in the database
 - optional lexical retrieval blended with dense candidates before reranking
+- anchor-aware retrieval scoring that boosts exact names, numbers, and distinctive query terms
 - reranking over hybrid retrieval candidates before answer context assembly
 - answer context assembly with near-duplicate suppression, adjacent-chunk expansion, and token-budgeting
 - shared query/evidence term normalization for lexical retrieval and extractive QA matching
 - pluggable reranker providers with token-overlap fallback, local cross-encoder support, and an OpenAI-compatible adapter
 - grounded question answering with citations
 - composite-question answer synthesis that requires support for each requested facet
+- extractive answer selection that can use adjacent-sentence spans and rejects weakly supported semantic neighbors more aggressively
 - sentence-level evidence excerpts for returned citations
 - per-answer-sentence citation attribution instead of mirroring the whole selected context window
 - pluggable QA providers, including a local extractive fallback and an OpenAI-compatible adapter
@@ -116,6 +118,7 @@ Current limitations:
 
 - PostgreSQL vector storage now follows the configured embedding dimension, but changing dimensions requires running migrations and reprocessing existing documents
 - context assembly is still heuristic even though answer traces now separate selected context from cited evidence
+- the long-document benchmark now has better early-page recall, but front-matter-heavy books still expose failures in exact-page citation precision and author/metadata disambiguation
 - the default benchmark fixture now covers more retrieval failure modes, but it is still synthetic and should keep expanding toward harder multi-page citation coverage cases
 
 ## API snapshot

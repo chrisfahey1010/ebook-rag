@@ -43,6 +43,24 @@ STOPWORDS = {
     "with",
 }
 
+NON_ANCHOR_TERMS = {
+    "appear",
+    "article",
+    "book",
+    "call",
+    "discuss",
+    "happen",
+    "mention",
+    "nickname",
+    "occur",
+    "policy",
+    "say",
+    "tell",
+    "thing",
+    "use",
+    "write",
+}
+
 
 def normalize_query_text(text: str) -> str:
     return WHITESPACE_RE.sub(" ", text).strip()
@@ -103,3 +121,29 @@ def contains_normalized_phrase(query: str, text: str) -> bool:
     normalized_query = " ".join(normalized_token_sequence(query))
     normalized_text = " ".join(normalized_token_sequence(text))
     return bool(normalized_query and normalized_query in normalized_text)
+
+
+def extract_anchor_terms(text: str) -> set[str]:
+    anchor_terms: set[str] = set()
+    fallback_terms: set[str] = set()
+
+    for raw_token in TOKEN_RE.findall(text):
+        lowered = raw_token.lower()
+        if lowered in STOPWORDS:
+            continue
+        normalized = normalize_term(lowered)
+        if len(normalized) <= 1 or normalized in STOPWORDS:
+            continue
+        if normalized not in NON_ANCHOR_TERMS and len(raw_token) >= 4:
+            fallback_terms.add(normalized)
+        if (
+            normalized not in NON_ANCHOR_TERMS
+            and (
+                any(character.isdigit() for character in raw_token)
+                or len(raw_token) >= 6
+                or raw_token[:1].isupper()
+            )
+        ):
+            anchor_terms.add(normalized)
+
+    return anchor_terms or fallback_terms
