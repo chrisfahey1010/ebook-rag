@@ -4,9 +4,11 @@
     {
       "filename": "rover-handbook.pdf",
       "pages": [
-        "Field checklist\n\nBefore any long field session, charge the rover battery fully and verify the spare pack is sealed.",
-        "Traverse maintenance\n\nAfter each rocky traverse, inspect the rover wheels for chipped treads and trapped debris.",
-        "Storage guidance\n\nStore replacement batteries in a dry compartment away from dust and direct heat."
+        "Field checklist\n\nBefore any long field session, charge the rover battery fully and verify the spare pack is sealed. Confirm the wheel lugs are tight, note the weather window, and record the current battery cycle count before leaving camp.",
+        "Traverse maintenance\n\nAfter each rocky traverse, inspect the rover wheels for chipped treads and trapped debris. Brush dust from the suspension joints, confirm the steering arm is still aligned, and log any gouges before the next route is planned.",
+        "Sampling routine\n\nSeal each soil sample container before it is placed in the rear storage bay. Label the collection time, the route marker, and the operator initials so the lab notes can be matched to the sample inventory later.",
+        "Navigation notes\n\nWhen the canyon route narrows, reduce speed and keep the mast camera pointed toward the next marker stake. Stop immediately if the front axle starts slipping or if the path is blocked by loose stone.",
+        "Storage guidance\n\nStore replacement batteries in a dry compartment away from dust and direct heat. Keep the spare charger wrapped, and do not leave battery packs near the wheel wash station after a muddy return."
       ],
       "questions": [
         {
@@ -25,7 +27,13 @@
           "question": "Where should replacement batteries be stored?",
           "expected_supported": true,
           "expected_answer_contains": ["dry compartment"],
-          "expected_citation_pages": [3]
+          "expected_citation_pages": [5]
+        },
+        {
+          "question": "What should the operator do if the front axle starts slipping?",
+          "expected_supported": true,
+          "expected_answer_contains": ["stop immediately"],
+          "expected_citation_pages": [4]
         },
         {
           "question": "What does the handbook say about whale migration routes?",
@@ -37,9 +45,11 @@
     {
       "filename": "spaceflight-manual.pdf",
       "pages": [
-        "Launch preparation\n\nInspect the heat shield before ignition and confirm all external locks are clear.",
-        "Flight operations\n\nMonitor cabin pressure during ascent and orbit insertion, and log any unusual vibration.",
-        "Landing procedure\n\nDeploy the parachute after atmospheric entry, then confirm the descent thrusters are armed."
+        "Launch preparation\n\nInspect the heat shield before ignition and confirm all external locks are clear. Verify the coolant loops are open, the telemetry feed is recording, and the launch clock is synchronized with mission control.",
+        "Flight operations\n\nMonitor cabin pressure during ascent and orbit insertion, and log any unusual vibration. If the pressure trend changes quickly, notify the commander and cross-check the backup gauge before adjusting the vent settings.",
+        "Docking sequence\n\nUse short thruster bursts while closing on the station ring, and keep the alignment camera centered on the docking target. Pause the approach if the distance reading jumps or the starboard latch fails to report ready.",
+        "Landing procedure\n\nDeploy the parachute after atmospheric entry, then confirm the descent thrusters are armed. Continue calling out altitude markers until the landing legs touch down and the engine controller reports idle.",
+        "Post-flight review\n\nAfter landing, archive the vibration log, inspect the hull seals, and compare the final fuel readings with the ascent checklist. File any discrepancy report before the next preflight briefing begins."
       ],
       "questions": [
         {
@@ -49,25 +59,38 @@
           "expected_citation_pages": [1]
         },
         {
-          "question": "When is the parachute deployed?",
-          "expected_supported": true,
-          "expected_answer_contains": ["after atmospheric entry"],
-          "expected_citation_pages": [3]
-        },
-        {
           "question": "What should the crew monitor during ascent?",
           "expected_supported": true,
           "expected_answer_contains": ["monitor cabin pressure"],
           "expected_citation_pages": [2]
+        },
+        {
+          "question": "When is the parachute deployed?",
+          "expected_supported": true,
+          "expected_answer_contains": ["after atmospheric entry"],
+          "expected_citation_pages": [4]
+        },
+        {
+          "question": "What should happen if the docking distance reading jumps?",
+          "expected_supported": true,
+          "expected_answer_contains": ["pause the approach"],
+          "expected_citation_pages": [3]
+        },
+        {
+          "question": "What does the manual say about coral reef temperatures?",
+          "expected_supported": false,
+          "expected_citation_pages": []
         }
       ]
     },
     {
       "filename": "marine-notes.pdf",
       "pages": [
-        "Currents\n\nCold currents carry nutrients toward coastal ecosystems and support dense food webs.",
-        "Feeding season\n\nWhales migrate through colder water regions during feeding seasons because prey is abundant there.",
-        "Reef systems\n\nCoral reefs depend on stable temperature ranges and clear water to remain healthy."
+        "Currents\n\nCold currents carry nutrients toward coastal ecosystems and support dense food webs. These currents often shape where fish gather, which in turn changes how seabirds and marine mammals spread across a season.",
+        "Feeding season\n\nWhales migrate through colder water regions during feeding seasons because prey is abundant there. The notes describe these colder corridors as reliable feeding grounds rather than breeding destinations.",
+        "Reef systems\n\nCoral reefs depend on stable temperature ranges and clear water to remain healthy. Even small spikes in temperature can stress reef systems long before the surrounding currents show obvious changes at the surface.",
+        "Research logistics\n\nTagging crews should label every sample bag before boarding the survey skiff and verify the radio battery is charged. Spare tags should be packed in a dry pouch away from the rinse buckets.",
+        "Storm response\n\nWhen offshore winds strengthen suddenly, the team should move the skiff to the protected inlet and secure the sonar case. Observers should stop in-water measurements until the chop settles."
       ],
       "questions": [
         {
@@ -87,6 +110,96 @@
           "expected_supported": true,
           "expected_answer_contains": ["stable temperature ranges"],
           "expected_citation_pages": [3]
+        },
+        {
+          "question": "Where should spare tags be packed?",
+          "expected_supported": true,
+          "expected_answer_contains": ["dry pouch"],
+          "expected_citation_pages": [4]
+        },
+        {
+          "question": "What should the team do when offshore winds strengthen suddenly?",
+          "expected_supported": true,
+          "expected_answer_contains": ["team should move the skiff"],
+          "expected_citation_pages": [5]
+        }
+      ]
+    },
+    {
+      "filename": "orchard-guide.pdf",
+      "pages": [
+        "Irrigation setup\n\nOpen the drip lines before sunrise and confirm the pressure gauge stays in the green band. If the gauge falls quickly, inspect the north row valves before increasing the pump speed.",
+        "Pruning rules\n\nPrune dead branches during the dry week and disinfect the shears between trees. Remove broken limbs first so the later shaping cuts do not pull bark away from the trunk collar.",
+        "Storage room\n\nStore grafting wax on the cool interior shelf away from the south window and the fertilizer sacks. Seal each wax tin after use so orchard dust does not dry the surface layer.",
+        "Harvest checks\n\nBefore loading fruit bins, inspect the pallet straps and verify the scale was zeroed after the previous weigh-in. Keep the cull ledger beside the dock door until the last truck leaves.",
+        "Pest watch\n\nIf aphids cluster on the new growth, spray the soap solution after dusk and avoid the open blossoms. Recheck the tagged branches two mornings later before escalating to a stronger treatment."
+      ],
+      "questions": [
+        {
+          "question": "When should dead branches be pruned?",
+          "expected_supported": true,
+          "expected_answer_contains": ["during the dry week"],
+          "expected_citation_pages": [2]
+        },
+        {
+          "question": "Where should grafting wax be stored?",
+          "expected_supported": true,
+          "expected_answer_contains": ["cool interior shelf"],
+          "expected_citation_pages": [3]
+        },
+        {
+          "question": "What should be inspected before loading fruit bins?",
+          "expected_supported": true,
+          "expected_answer_contains": ["inspect the pallet straps"],
+          "expected_citation_pages": [4]
+        },
+        {
+          "question": "When should the soap solution be sprayed for aphids?",
+          "expected_supported": true,
+          "expected_answer_contains": ["after dusk"],
+          "expected_citation_pages": [5]
+        }
+      ]
+    },
+    {
+      "filename": "archive-operations.pdf",
+      "pages": [
+        "Receiving desk\n\nLabel each incoming archive box before it reaches the sorting cart and record the donor code on the intake sheet. Fragile folders should be placed on the padded shelf until the registrar reviews them.",
+        "Climate control\n\nStore photographic negatives in the cold cabinet and keep the humidity log beside the door clipboard. If the humidity rises for two readings in a row, call facilities before moving the cabinet trays.",
+        "Reading room\n\nResearchers must leave pens at the locker station and use only the issued pencils at the tables. Staff should page boxes one at a time so the call slips always match the material in view.",
+        "Digitization bench\n\nClean the scanner glass before every oversized map session and recalibrate the color target after lunch. Save the master TIFF to the preservation share before exporting any access copies.",
+        "Incident response\n\nIf a water leak reaches the map drawers, move the top drawers first and start the incident log immediately. Wet folders should be interleaved with blotter sheets before freezing."
+      ],
+      "questions": [
+        {
+          "question": "What should happen before an archive box reaches the sorting cart?",
+          "expected_supported": true,
+          "expected_answer_contains": ["label each incoming archive box"],
+          "expected_citation_pages": [1]
+        },
+        {
+          "question": "Where should photographic negatives be stored?",
+          "expected_supported": true,
+          "expected_answer_contains": ["cold cabinet"],
+          "expected_citation_pages": [2]
+        },
+        {
+          "question": "What writing tool may researchers use at the tables?",
+          "expected_supported": true,
+          "expected_answer_contains": ["issued pencils"],
+          "expected_citation_pages": [3]
+        },
+        {
+          "question": "What should be saved before exporting access copies?",
+          "expected_supported": true,
+          "expected_answer_contains": ["master tiff"],
+          "expected_citation_pages": [4]
+        },
+        {
+          "question": "What should staff do if a water leak reaches the map drawers?",
+          "expected_supported": true,
+          "expected_answer_contains": ["move the top drawers first"],
+          "expected_citation_pages": [5]
         }
       ]
     }

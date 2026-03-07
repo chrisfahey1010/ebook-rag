@@ -2,8 +2,8 @@ from dataclasses import dataclass
 
 from ebook_rag_api.models import DocumentChunk, DocumentPage
 
-TARGET_CHUNK_WORDS = 220
-OVERLAP_CHUNK_WORDS = 35
+TARGET_CHUNK_WORDS = 160
+OVERLAP_CHUNK_WORDS = 24
 
 
 @dataclass

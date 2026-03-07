@@ -1,5 +1,11 @@
 from fastapi.testclient import TestClient
 
+from ebook_rag_api.services.qa import (
+    RetrievedChunkContext,
+    assemble_answer_contexts,
+    select_evidence_citations,
+)
+
 
 def test_qa_answer_returns_grounded_answer_with_citations(
     client: TestClient, pdf_factory
@@ -170,3 +176,106 @@ def test_qa_citations_follow_the_answer_evidence_instead_of_all_selected_context
     assert payload["trace"]["cited_contexts"]
     assert len(payload["trace"]["cited_contexts"]) == 1
     assert payload["trace"]["cited_contexts"][0]["page_start"] == 1
+
+
+def test_assemble_answer_contexts_skips_irrelevant_adjacent_chunks() -> None:
+    contexts = [
+        RetrievedChunkContext(
+            chunk_id="chunk-1",
+            document_id="doc-1",
+            document_title="Manual",
+            document_filename="manual.pdf",
+            chunk_index=1,
+            page_start=1,
+            page_end=1,
+            text="Departure checklist. Inspect the cooling lines before launch.",
+            token_estimate=10,
+            score=0.95,
+            rerank_score=0.95,
+        ),
+        RetrievedChunkContext(
+            chunk_id="chunk-2",
+            document_id="doc-1",
+            document_title="Manual",
+            document_filename="manual.pdf",
+            chunk_index=2,
+            page_start=1,
+            page_end=1,
+            text="Archive telemetry records monthly and review spare inventory counts.",
+            token_estimate=10,
+            score=0.99,
+            rerank_score=0.99,
+        ),
+    ]
+
+    selected = assemble_answer_contexts(
+        question="What should happen to the cooling lines before launch?",
+        contexts=contexts,
+    )
+
+    assert [context.chunk_id for context in selected] == ["chunk-1"]
+
+
+def test_select_evidence_citations_returns_sentence_level_excerpt() -> None:
+    context = RetrievedChunkContext(
+        chunk_id="chunk-1",
+        document_id="doc-1",
+        document_title="Manual",
+        document_filename="manual.pdf",
+        chunk_index=1,
+        page_start=4,
+        page_end=4,
+        text=(
+            "General maintenance covers filter checks and storage logs. "
+            "Inspect the cooling lines before launch."
+        ),
+        token_estimate=18,
+        score=0.9,
+        rerank_score=0.9,
+    )
+
+    citations = select_evidence_citations(
+        answer_text="Inspect the cooling lines before launch.",
+        contexts=[context],
+        primary_context=context,
+    )
+
+    assert len(citations) == 1
+    assert citations[0].text == "Inspect the cooling lines before launch."
+
+
+def test_select_evidence_citations_filters_weak_overlap_contexts() -> None:
+    primary_context = RetrievedChunkContext(
+        chunk_id="chunk-1",
+        document_id="doc-1",
+        document_title="Manual",
+        document_filename="manual.pdf",
+        chunk_index=1,
+        page_start=2,
+        page_end=2,
+        text="Pause the approach if the distance reading jumps or the starboard latch fails.",
+        token_estimate=16,
+        score=0.95,
+        rerank_score=0.95,
+    )
+    weak_context = RetrievedChunkContext(
+        chunk_id="chunk-2",
+        document_id="doc-1",
+        document_title="Manual",
+        document_filename="manual.pdf",
+        chunk_index=2,
+        page_start=3,
+        page_end=3,
+        text="Inspect the hatch before fueling and confirm the distance marker is visible.",
+        token_estimate=14,
+        score=0.8,
+        rerank_score=0.8,
+    )
+
+    citations = select_evidence_citations(
+        answer_text="Pause the approach if the distance reading jumps.",
+        contexts=[primary_context, weak_context],
+        primary_context=primary_context,
+    )
+
+    assert [citation.chunk_id for citation in citations] == ["chunk-1"]

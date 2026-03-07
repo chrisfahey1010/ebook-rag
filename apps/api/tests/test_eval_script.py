@@ -182,3 +182,32 @@ def test_expand_page_span_includes_all_pages_in_a_chunk_range() -> None:
 
     assert run_eval.expand_page_span(3, 3) == {3}
     assert run_eval.expand_page_span(2, 4) == {2, 3, 4}
+
+
+def test_page_expectation_hit_supports_any_and_all_matching() -> None:
+    run_eval = load_run_eval_module()
+
+    assert (
+        run_eval.page_expectation_hit(
+            expected_pages={2, 3},
+            actual_pages={1, 2, 4},
+            match_mode="any",
+        )
+        is True
+    )
+    assert (
+        run_eval.page_expectation_hit(
+            expected_pages={2, 3},
+            actual_pages={1, 2, 4},
+            match_mode="all",
+        )
+        is False
+    )
+    assert (
+        run_eval.page_expectation_hit(
+            expected_pages={2, 3},
+            actual_pages={2, 3, 4},
+            match_mode="all",
+        )
+        is True
+    )

@@ -68,7 +68,7 @@ def create_pdf(page_texts: list[str]) -> bytes:
     document = fitz.open()
     for text in page_texts:
         page = document.new_page()
-        page.insert_text((72, 72), text)
+        page.insert_textbox(fitz.Rect(72, 72, 523, 770), text, fontsize=11)
     payload = document.tobytes()
     document.close()
     return payload
@@ -89,6 +89,19 @@ def expand_page_span(start_page: int, end_page: int) -> set[int]:
     if end_page < start_page:
         return {start_page}
     return set(range(start_page, end_page + 1))
+
+
+def page_expectation_hit(
+    *,
+    expected_pages: set[int],
+    actual_pages: set[int],
+    match_mode: str,
+) -> bool:
+    if not expected_pages:
+        return True
+    if match_mode == "all":
+        return expected_pages.issubset(actual_pages)
+    return bool(actual_pages & expected_pages)
 
 
 def percentile(values: list[float], percentile_rank: float) -> float:
@@ -127,9 +140,18 @@ def build_question_result(
     cited_pages: set[int],
     answer_terms: list[str],
     latency_ms: float,
+    citation_match_mode: str,
 ) -> dict[str, Any]:
-    retrieval_hit = not expected_citation_pages or bool(retrieved_pages & expected_citation_pages)
-    citation_hit = not expected_citation_pages or bool(cited_pages & expected_citation_pages)
+    retrieval_hit = page_expectation_hit(
+        expected_pages=expected_citation_pages,
+        actual_pages=retrieved_pages,
+        match_mode=citation_match_mode,
+    )
+    citation_hit = page_expectation_hit(
+        expected_pages=expected_citation_pages,
+        actual_pages=cited_pages,
+        match_mode=citation_match_mode,
+    )
     support_hit = supported == expected_supported
     answer_hit = not answer_terms or any(term in answer.lower() for term in answer_terms)
 
@@ -138,6 +160,7 @@ def build_question_result(
         "question": question,
         "expected_supported": expected_supported,
         "supported": supported,
+        "citation_match_mode": citation_match_mode,
         "expected_citation_pages": sorted(expected_citation_pages),
         "retrieved_pages": sorted(retrieved_pages),
         "cited_pages": sorted(cited_pages),
@@ -448,6 +471,10 @@ def main() -> int:
                             cited_pages=cited_pages,
                             answer_terms=answer_terms,
                             latency_ms=float(trace["timings"]["total_ms"]),
+                            citation_match_mode=question_case.get(
+                                "citation_match_mode",
+                                "any",
+                            ),
                         )
                     )
 

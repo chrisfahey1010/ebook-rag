@@ -1,5 +1,6 @@
 import re
 from dataclasses import dataclass
+from dataclasses import replace
 from functools import lru_cache
 from time import perf_counter
 from typing import Protocol
@@ -9,7 +10,12 @@ from sqlalchemy.orm import Session
 
 from ebook_rag_api.core.config import get_settings
 from ebook_rag_api.services.retrieval import ChunkSearchMatch, normalize_query, search_chunks
-from ebook_rag_api.services.text import STOPWORDS, TOKEN_RE, tokenize_terms
+from ebook_rag_api.services.text import (
+    STOPWORDS,
+    TOKEN_RE,
+    contains_normalized_phrase,
+    tokenize_terms,
+)
 
 SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 
@@ -292,9 +298,8 @@ def build_chunk_context(match: ChunkSearchMatch) -> RetrievedChunkContext:
 
 
 def assemble_answer_contexts(
-    *,
-    question: str,
     contexts: list[RetrievedChunkContext],
+    question: str = "",
 ) -> list[RetrievedChunkContext]:
     if not contexts:
         return []
@@ -330,6 +335,7 @@ def assemble_answer_contexts(
             all_contexts=contexts,
             remaining_budget=remaining_budget,
             consumed_chunk_ids=consumed_chunk_ids,
+            question_terms=question_terms,
         )
         if adjacent_context is not None:
             adjacent_cost = max(
@@ -378,6 +384,7 @@ def _select_adjacent_context(
     all_contexts: list[RetrievedChunkContext],
     remaining_budget: int,
     consumed_chunk_ids: set[str],
+    question_terms: set[str],
 ) -> RetrievedChunkContext | None:
     adjacent_contexts = [
         candidate
@@ -390,7 +397,14 @@ def _select_adjacent_context(
     if not adjacent_contexts:
         return None
 
-    best_candidate = max(adjacent_contexts, key=lambda context: context.score)
+    best_candidate = max(
+        adjacent_contexts,
+        key=lambda context: _adjacent_context_sort_key(
+            base_context=base_context,
+            candidate=context,
+            question_terms=question_terms,
+        ),
+    )
     candidate_cost = max(
         best_candidate.token_estimate,
         _estimate_tokens(best_candidate.text),
@@ -398,7 +412,41 @@ def _select_adjacent_context(
     )
     if candidate_cost > remaining_budget:
         return None
+    if not _adjacent_context_is_useful(
+        base_context=base_context,
+        candidate=best_candidate,
+        question_terms=question_terms,
+    ):
+        return None
     return best_candidate
+
+
+def _adjacent_context_sort_key(
+    *,
+    base_context: RetrievedChunkContext,
+    candidate: RetrievedChunkContext,
+    question_terms: set[str],
+) -> tuple[float, float, float]:
+    base_terms = _tokenize(base_context.text)
+    candidate_terms = _tokenize(candidate.text)
+    added_question_terms = len((candidate_terms - base_terms) & question_terms)
+    shared_terms = len(candidate_terms & base_terms)
+    return (float(added_question_terms), float(shared_terms), candidate.score)
+
+
+def _adjacent_context_is_useful(
+    *,
+    base_context: RetrievedChunkContext,
+    candidate: RetrievedChunkContext,
+    question_terms: set[str],
+) -> bool:
+    if not question_terms:
+        return True
+    base_terms = _tokenize(base_context.text)
+    candidate_terms = _tokenize(candidate.text)
+    if (candidate_terms - base_terms) & question_terms:
+        return True
+    return len(base_terms & candidate_terms) >= 3 and bool(candidate_terms & question_terms)
 
 
 def _estimate_tokens(text: str) -> int:
@@ -470,14 +518,27 @@ def select_evidence_citations(
     for context in contexts:
         if context.score <= 0:
             continue
-        context_terms = _tokenize(context.text)
+        evidence_context = _build_evidence_excerpt(answer_text=answer_text, context=context)
+        context_terms = _tokenize(evidence_context.text)
         overlap = len(answer_terms & context_terms)
-        if overlap == 0 and primary_context is not None and context.chunk_id != primary_context.chunk_id:
+        phrase_match = contains_normalized_phrase(answer_text, evidence_context.text)
+        minimum_overlap = 1 if len(answer_terms) <= 3 else 2
+        if overlap == 0 and (
+            primary_context is None or context.chunk_id != primary_context.chunk_id
+        ):
+            continue
+        if (
+            context.chunk_id != (primary_context.chunk_id if primary_context is not None else None)
+            and overlap < minimum_overlap
+            and not phrase_match
+        ):
             continue
         score = overlap + context.score
+        if phrase_match:
+            score += 0.5
         if primary_context is not None and context.chunk_id == primary_context.chunk_id:
             score += 1.0
-        ranked.append((score, context))
+        ranked.append((score, evidence_context))
 
     ranked.sort(
         key=lambda item: (
@@ -500,8 +561,35 @@ def select_evidence_citations(
     if citations:
         return citations
     if primary_context is not None:
-        return [primary_context]
+        return [_build_evidence_excerpt(answer_text=answer_text, context=primary_context)]
     return []
+
+
+def _build_evidence_excerpt(
+    *,
+    answer_text: str,
+    context: RetrievedChunkContext,
+) -> RetrievedChunkContext:
+    sentences = [
+        sentence.strip()
+        for sentence in SENTENCE_SPLIT_RE.split(context.text)
+        if sentence.strip()
+    ]
+    if not sentences:
+        return context
+
+    answer_terms = _tokenize(answer_text)
+    best_sentence = max(
+        sentences,
+        key=lambda sentence: (
+            len(answer_terms & _tokenize(sentence)),
+            contains_normalized_phrase(answer_text, sentence),
+            len(sentence),
+        ),
+    )
+    if len(answer_terms & _tokenize(best_sentence)) == 0:
+        return context
+    return replace(context, text=best_sentence)
 
 
 def _rank_contexts_for_selection(

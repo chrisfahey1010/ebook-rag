@@ -19,7 +19,7 @@ def pdf_factory() -> Callable[[list[str]], bytes]:
         document = fitz.open()
         for text in page_texts:
             page = document.new_page()
-            page.insert_text((72, 72), text)
+            page.insert_textbox(fitz.Rect(72, 72, 523, 770), text, fontsize=11)
         payload = document.tobytes()
         document.close()
         return payload
