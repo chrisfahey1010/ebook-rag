@@ -1,4 +1,5 @@
 import re
+from dataclasses import dataclass
 
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session, joinedload
@@ -7,8 +8,17 @@ from ebook_rag_api.core.config import get_settings
 from ebook_rag_api.db.vector import is_postgresql_dialect
 from ebook_rag_api.models import Document, DocumentChunk
 from ebook_rag_api.services.embeddings import get_embedding_provider
+from ebook_rag_api.services.reranking import get_reranker
 
 WHITESPACE_RE = re.compile(r"\s+")
+
+
+@dataclass(frozen=True)
+class ChunkSearchMatch:
+    chunk: DocumentChunk
+    dense_score: float
+    rerank_score: float
+    score: float
 
 
 def normalize_query(text: str) -> str:
@@ -31,7 +41,7 @@ def cosine_similarity(left: list[float], right: list[float]) -> float:
 
 def search_chunks(
     session: Session, query: str, top_k: int, document_id: str | None = None
-) -> tuple[str, list[tuple[DocumentChunk, float]]]:
+) -> tuple[str, list[ChunkSearchMatch]]:
     normalized_query = normalize_query(query)
     if not normalized_query:
         return "", []
@@ -56,13 +66,15 @@ def search_chunks(
         if document_id is not None:
             statement = statement.where(DocumentChunk.document_id == document_id)
 
+        candidate_limit = max(top_k, top_k * settings.rerank_candidate_multiplier)
         statement = statement.order_by(
             desc(score_expression),
             DocumentChunk.page_start.asc(),
             DocumentChunk.chunk_index.asc(),
-        ).limit(top_k)
+        ).limit(candidate_limit)
         rows = session.execute(statement).all()
-        return normalized_query, [(row[0], row[1]) for row in rows]
+        dense_matches = [(row[0], row[1]) for row in rows]
+        return normalized_query, rerank_matches(normalized_query, dense_matches, top_k)
 
     statement = (
         select(DocumentChunk)
@@ -85,4 +97,42 @@ def search_chunks(
         scored_matches.append((chunk, score))
 
     scored_matches.sort(key=lambda item: (-item[1], item[0].page_start, item[0].chunk_index))
-    return normalized_query, scored_matches[:top_k]
+    candidate_limit = max(top_k, top_k * settings.rerank_candidate_multiplier)
+    return normalized_query, rerank_matches(
+        normalized_query,
+        scored_matches[:candidate_limit],
+        top_k,
+    )
+
+
+def rerank_matches(
+    query: str,
+    dense_matches: list[tuple[DocumentChunk, float]],
+    top_k: int,
+) -> list[ChunkSearchMatch]:
+    if not dense_matches:
+        return []
+
+    reranker = get_reranker()
+    rerank_scores = reranker.score(query, [chunk.text for chunk, _ in dense_matches])
+    matches = [
+        ChunkSearchMatch(
+            chunk=chunk,
+            dense_score=dense_score,
+            rerank_score=rerank_score,
+            score=(dense_score * 0.35) + (rerank_score * 0.65),
+        )
+        for (chunk, dense_score), rerank_score in zip(
+            dense_matches, rerank_scores, strict=True
+        )
+    ]
+    matches.sort(
+        key=lambda item: (
+            -item.score,
+            -item.rerank_score,
+            -item.dense_score,
+            item.chunk.page_start,
+            item.chunk.chunk_index,
+        )
+    )
+    return matches[:top_k]

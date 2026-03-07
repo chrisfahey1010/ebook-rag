@@ -84,6 +84,8 @@ def test_retrieval_search_returns_ranked_matches(
     assert payload["matches"]
     assert payload["matches"][0]["document_id"] == mars_document_id
     assert "rover" in payload["matches"][0]["text"].lower()
+    assert "dense_score" in payload["matches"][0]
+    assert "rerank_score" in payload["matches"][0]
     assert payload["matches"][0]["score"] >= payload["matches"][-1]["score"]
 
 
@@ -167,4 +169,6 @@ def test_debug_retrieve_returns_ranked_candidates_for_workspace_inspection(
     assert payload["matches"]
     assert payload["matches"][0]["document_id"] == document_id
     assert "inspect the seals" in payload["matches"][0]["text"].lower()
+    assert "dense_score" in payload["matches"][0]
+    assert "rerank_score" in payload["matches"][0]
     assert payload["matches"][0]["score"] >= payload["matches"][-1]["score"]

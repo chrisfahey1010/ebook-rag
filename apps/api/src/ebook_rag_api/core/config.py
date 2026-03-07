@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     max_upload_size_mb: int = 50
     embedding_provider: str = "hashing"
     embedding_dimensions: int = 128
+    reranker_provider: str = "token_overlap"
+    rerank_candidate_multiplier: int = 4
     answer_provider: str = "extractive"
     llm_base_url: str = "http://localhost:11434/v1"
     llm_api_key: str = "not-needed"

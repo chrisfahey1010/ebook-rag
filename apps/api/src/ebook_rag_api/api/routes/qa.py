@@ -41,6 +41,8 @@ def answer_question(
                 page_start=context.page_start,
                 page_end=context.page_end,
                 text=context.text,
+                dense_score=context.dense_score,
+                rerank_score=context.rerank_score,
                 score=context.score,
             )
             for context in answer.citations
@@ -59,6 +61,8 @@ def answer_question(
                         page_start=context.page_start,
                         page_end=context.page_end,
                         text=context.text,
+                        dense_score=context.dense_score,
+                        rerank_score=context.rerank_score,
                         score=context.score,
                     )
                     for context in qa_trace.retrieved_chunks
@@ -73,6 +77,8 @@ def answer_question(
                         page_start=context.page_start,
                         page_end=context.page_end,
                         text=context.text,
+                        dense_score=context.dense_score,
+                        rerank_score=context.rerank_score,
                         score=context.score,
                     )
                     for context in qa_trace.selected_contexts

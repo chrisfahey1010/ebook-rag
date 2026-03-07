@@ -26,16 +26,18 @@ def debug_retrieve(
         normalized_query=normalized_query,
         matches=[
             RetrievalMatch(
-                chunk_id=chunk.id,
-                document_id=chunk.document_id,
-                document_title=chunk.document.title,
-                document_filename=chunk.document.original_filename,
-                chunk_index=chunk.chunk_index,
-                page_start=chunk.page_start,
-                page_end=chunk.page_end,
-                text=chunk.text,
-                score=score,
+                chunk_id=match.chunk.id,
+                document_id=match.chunk.document_id,
+                document_title=match.chunk.document.title,
+                document_filename=match.chunk.document.original_filename,
+                chunk_index=match.chunk.chunk_index,
+                page_start=match.chunk.page_start,
+                page_end=match.chunk.page_end,
+                text=match.chunk.text,
+                dense_score=match.dense_score,
+                rerank_score=match.rerank_score,
+                score=match.score,
             )
-            for chunk, score in matches
+            for match in matches
         ],
     )

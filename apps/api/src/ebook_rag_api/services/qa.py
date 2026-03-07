@@ -8,8 +8,7 @@ import httpx
 from sqlalchemy.orm import Session
 
 from ebook_rag_api.core.config import get_settings
-from ebook_rag_api.models import DocumentChunk
-from ebook_rag_api.services.retrieval import normalize_query, search_chunks
+from ebook_rag_api.services.retrieval import ChunkSearchMatch, normalize_query, search_chunks
 
 STOPWORDS = {
     "a",
@@ -54,7 +53,9 @@ class RetrievedChunkContext:
     page_start: int
     page_end: int
     text: str
-    score: float
+    dense_score: float = 0.0
+    rerank_score: float = 0.0
+    score: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -251,7 +252,7 @@ def ask_question_with_trace(
         document_id=document_id,
     )
     retrieved_at = perf_counter()
-    retrieved_chunks = [build_chunk_context(chunk, score) for chunk, score in matches]
+    retrieved_chunks = [build_chunk_context(match) for match in matches]
     selected_contexts = assemble_answer_contexts(retrieved_chunks)
     prompt_snapshot = (
         build_qa_prompt(
@@ -285,7 +286,8 @@ def ask_question_with_trace(
     return normalized_question, trace
 
 
-def build_chunk_context(chunk: DocumentChunk, score: float) -> RetrievedChunkContext:
+def build_chunk_context(match: ChunkSearchMatch) -> RetrievedChunkContext:
+    chunk = match.chunk
     return RetrievedChunkContext(
         chunk_id=chunk.id,
         document_id=chunk.document_id,
@@ -295,7 +297,9 @@ def build_chunk_context(chunk: DocumentChunk, score: float) -> RetrievedChunkCon
         page_start=chunk.page_start,
         page_end=chunk.page_end,
         text=chunk.text,
-        score=score,
+        dense_score=match.dense_score,
+        rerank_score=match.rerank_score,
+        score=match.score,
     )
 
 

@@ -17,6 +17,8 @@ class QACitation(BaseModel):
     page_start: int
     page_end: int
     text: str
+    dense_score: float
+    rerank_score: float
     score: float
 
 
@@ -46,6 +48,8 @@ class QATraceChunk(BaseModel):
     page_start: int
     page_end: int
     text: str
+    dense_score: float
+    rerank_score: float
     score: float
 
 

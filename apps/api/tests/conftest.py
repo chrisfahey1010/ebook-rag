@@ -10,6 +10,7 @@ from ebook_rag_api.models import Document, DocumentChunk, DocumentPage, Ingestio
 from ebook_rag_api.main import create_app
 from ebook_rag_api.services.embeddings import get_embedding_provider
 from ebook_rag_api.services.qa import get_answer_provider
+from ebook_rag_api.services.reranking import get_reranker
 
 
 @pytest.fixture()
@@ -40,6 +41,7 @@ def app_environment(tmp_path, monkeypatch) -> Generator[None, None, None]:
     get_session_factory.cache_clear()
     get_embedding_provider.cache_clear()
     get_answer_provider.cache_clear()
+    get_reranker.cache_clear()
 
     yield
 
@@ -49,6 +51,7 @@ def app_environment(tmp_path, monkeypatch) -> Generator[None, None, None]:
     get_session_factory.cache_clear()
     get_embedding_provider.cache_clear()
     get_answer_provider.cache_clear()
+    get_reranker.cache_clear()
 
 
 @pytest.fixture()

@@ -95,6 +95,7 @@ Current implementation includes:
 - document deletion endpoint that also removes uploaded PDFs
 - PostgreSQL `pgvector` storage for chunk embeddings
 - dense retrieval executed in the database
+- reranking over retrieved candidates before answer context assembly
 - grounded question answering with citations
 - pluggable QA providers, including a local extractive fallback and an OpenAI-compatible adapter
 - retrieval debug route and browser-side candidate inspector
@@ -103,8 +104,8 @@ Current implementation includes:
 
 Current limitations:
 
-- retrieval is dense-only today; reranking is still pending
-- retrieval quality is now measurable, but the current dense-only baseline still misses several benchmark citations and needs reranking or retrieval improvements
+- retrieval currently uses a simple local token-overlap reranker; model-backed reranking and lexical blending are still pending
+- retrieval quality is now measurable, but benchmark results should be refreshed and compared after additional retrieval improvements
 
 ## API snapshot
 
@@ -119,13 +120,13 @@ Current limitations:
 
 Upload registers the PDF, computes its SHA-256 checksum, stores the file locally, extracts per-page text with PyMuPDF, builds paragraph-aware chunks with page spans and token estimates, generates embeddings, persists the records, and returns document plus ingestion status metadata.
 
-Retrieval accepts a natural-language query, embeds it, scores persisted chunks, and returns ranked matches with document metadata, page spans, and similarity scores.
+Retrieval accepts a natural-language query, embeds it, pulls dense candidates, reranks them, and returns ranked matches with document metadata, page spans, dense scores, rerank scores, and final scores.
 
 QA builds on retrieval and returns a grounded answer plus structured citations. The default local answerer is conservative and can decline to answer when the indexed content does not provide enough support. A configurable OpenAI-compatible provider path is also available for model-backed generation.
 
 `POST /api/qa/ask` now accepts `include_trace=true` to expose the selected context window, prompt snapshot, provider name, and timing breakdown used for answer generation.
 
-Debug retrieval exposes the ranked candidate list directly so the frontend can show what the retriever selected before answer generation.
+Debug retrieval exposes the ranked candidate list directly so the frontend can show what the retriever selected before answer generation, including dense and rerank score breakdowns.
 
 ## Evaluation
 
@@ -141,8 +142,8 @@ This uses [`sample_eval.json`](/home/chris/dev/ebook-rag/apps/api/benchmarks/sam
 
 The project has reached the first end-to-end product milestone: upload -> ingest -> retrieve -> answer in both the API and the browser UI. The next work should close the remaining quality and observability gaps from the project spec.
 
-### 1. Improve retrieval quality
+### 1. Improve retrieval quality further
 
-- use the new benchmark runner to measure baseline retrieval hit rate and citation accuracy
-- add reranking now that the baseline is measurable
+- run the benchmark again to measure the new reranked baseline
+- replace or augment the simple local reranker with a stronger model-backed reranker
 - optionally add lexical retrieval after reranking so improvements can be evaluated in isolation

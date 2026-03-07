@@ -65,6 +65,7 @@ def main() -> int:
         from ebook_rag_api.main import create_app
         from ebook_rag_api.services.embeddings import get_embedding_provider
         from ebook_rag_api.services.qa import get_answer_provider
+        from ebook_rag_api.services.reranking import get_reranker
         from fastapi.testclient import TestClient
 
         get_settings.cache_clear()
@@ -72,6 +73,7 @@ def main() -> int:
         get_session_factory.cache_clear()
         get_embedding_provider.cache_clear()
         get_answer_provider.cache_clear()
+        get_reranker.cache_clear()
 
         app = create_app()
         Base.metadata.create_all(bind=get_engine())
