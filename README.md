@@ -88,7 +88,8 @@ Current implementation includes:
 - FastAPI app with a health endpoint
 - SQLAlchemy database wiring with Alembic migrations
 - PDF upload, file registration, and PyMuPDF extraction
-- persisted per-page text and paragraph-aware chunks
+- persisted per-page text with repeated header/footer cleanup and page-number stripping
+- larger paragraph-aware chunks with section heading metadata
 - chunk embeddings generated during ingestion
 - ingestion status lookup and document reprocessing endpoints
 - pluggable embedding providers with hashing, local `sentence-transformers`, and OpenAI-compatible adapters
@@ -136,7 +137,7 @@ Current limitations:
 - `GET /api/debug/documents/{document_id}/chunks`
 - `POST /api/debug/rerank`
 
-Upload registers the PDF, computes its SHA-256 checksum, stores the file locally, extracts per-page text with PyMuPDF, builds paragraph-aware chunks with page spans and token estimates, generates embeddings, persists the records, and returns document plus ingestion status metadata.
+Upload registers the PDF, computes its SHA-256 checksum, stores the file locally, extracts per-page text with PyMuPDF, removes repeated boundary noise such as headers, footers, and standalone page numbers when detectable, builds larger paragraph-aware chunks with page spans, token estimates, and heading metadata, generates embeddings, persists the records, and returns document plus ingestion status metadata.
 
 Reprocessing reruns extraction and embedding generation for an existing document, which is useful after changing embedding models or dimensions.
 

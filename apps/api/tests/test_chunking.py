@@ -35,3 +35,29 @@ def test_build_document_chunks_splits_long_paragraph_sets() -> None:
     assert all(chunk.token_estimate > 0 for chunk in chunks)
     assert chunks[0].page_start == 1
     assert chunks[-1].page_end == 2
+    assert max(chunk.token_estimate for chunk in chunks) > 250
+
+
+def test_build_document_chunks_preserves_section_heading_metadata() -> None:
+    pages = [
+        DocumentPage(
+            page_number=1,
+            raw_text="",
+            normalized_text="\n\n".join(
+                [
+                    "Chapter 3",
+                    "Road Names and Origins " + "alpha " * 110,
+                    "The Oakland section " + "beta " * 110,
+                    "Epilogue",
+                    "Closing remarks " + "gamma " * 80,
+                ]
+            ),
+        )
+    ]
+
+    chunks = build_document_chunks(pages)
+
+    assert chunks
+    assert chunks[0].heading == "Chapter 3"
+    assert chunks[0].text.startswith("Chapter 3")
+    assert any(chunk.heading == "Epilogue" for chunk in chunks)

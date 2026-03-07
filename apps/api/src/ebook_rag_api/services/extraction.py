@@ -11,26 +11,165 @@ from ebook_rag_api.services.chunking import build_document_chunks
 
 WHITESPACE_RE = re.compile(r"[ \t]+")
 BLANK_LINE_RE = re.compile(r"\n{3,}")
+NON_ALNUM_RE = re.compile(r"[^a-z0-9# ]+")
+ROMAN_NUMERAL_RE = re.compile(r"^(?=[ivxlcdm]+\Z)[ivxlcdm]+$", re.IGNORECASE)
+PAGE_NUMBER_RE = re.compile(r"^(?:page\s+)?\d+$", re.IGNORECASE)
+
+
+def _normalize_line(line: str) -> str:
+    return WHITESPACE_RE.sub(" ", line).strip()
 
 
 def normalize_page_text(raw_text: str) -> str:
-    lines = [WHITESPACE_RE.sub(" ", line).strip() for line in raw_text.splitlines()]
+    lines = [_normalize_line(line) for line in raw_text.splitlines()]
     normalized = "\n".join(line if line else "" for line in lines)
     normalized = BLANK_LINE_RE.sub("\n\n", normalized).strip()
     return normalized
+
+
+def normalize_document_pages(raw_pages: list[str]) -> list[str]:
+    normalized_lines_by_page = [
+        [_normalize_line(line) for line in raw_text.splitlines()]
+        for raw_text in raw_pages
+    ]
+    repeated_header_signatures = _find_repeated_boundary_signatures(
+        normalized_lines_by_page,
+        take_first=True,
+    )
+    repeated_footer_signatures = _find_repeated_boundary_signatures(
+        normalized_lines_by_page,
+        take_first=False,
+    )
+
+    normalized_pages: list[str] = []
+    for lines in normalized_lines_by_page:
+        cleaned_lines = _strip_repeated_boundary_noise(
+            lines,
+            repeated_header_signatures=repeated_header_signatures,
+            repeated_footer_signatures=repeated_footer_signatures,
+        )
+        normalized = "\n".join(line if line else "" for line in cleaned_lines)
+        normalized = BLANK_LINE_RE.sub("\n\n", normalized).strip()
+        normalized_pages.append(normalized)
+    return normalized_pages
+
+
+def _find_repeated_boundary_signatures(
+    normalized_lines_by_page: list[list[str]],
+    *,
+    take_first: bool,
+) -> set[str]:
+    signature_counts: dict[str, int] = {}
+    for lines in normalized_lines_by_page:
+        for boundary_line in _boundary_lines(lines, take_first=take_first):
+            signature = _boundary_signature(boundary_line)
+            if signature is None:
+                continue
+            signature_counts[signature] = signature_counts.get(signature, 0) + 1
+
+    minimum_repetitions = 3
+    return {
+        signature
+        for signature, count in signature_counts.items()
+        if count >= minimum_repetitions
+    }
+
+
+def _strip_repeated_boundary_noise(
+    lines: list[str],
+    *,
+    repeated_header_signatures: set[str],
+    repeated_footer_signatures: set[str],
+) -> list[str]:
+    cleaned_lines = list(lines)
+
+    while True:
+        first_index = _first_non_empty_index(cleaned_lines)
+        if first_index is None:
+            break
+        first_line = cleaned_lines[first_index]
+        signature = _boundary_signature(first_line)
+        if signature not in repeated_header_signatures and not _is_page_number_line(first_line):
+            break
+        cleaned_lines[first_index] = ""
+
+    while True:
+        last_index = _last_non_empty_index(cleaned_lines)
+        if last_index is None:
+            break
+        last_line = cleaned_lines[last_index]
+        signature = _boundary_signature(last_line)
+        if signature not in repeated_footer_signatures and not _is_page_number_line(last_line):
+            break
+        cleaned_lines[last_index] = ""
+
+    return cleaned_lines
+
+
+def _boundary_lines(lines: list[str], *, take_first: bool, limit: int = 2) -> list[str]:
+    boundary_lines: list[str] = []
+    indexes = range(len(lines)) if take_first else range(len(lines) - 1, -1, -1)
+    for index in indexes:
+        if not lines[index]:
+            continue
+        boundary_lines.append(lines[index])
+        if len(boundary_lines) >= limit:
+            break
+    return boundary_lines
+
+
+def _first_non_empty_index(lines: list[str]) -> int | None:
+    for index, line in enumerate(lines):
+        if line:
+            return index
+    return None
+
+
+def _last_non_empty_index(lines: list[str]) -> int | None:
+    for index in range(len(lines) - 1, -1, -1):
+        if lines[index]:
+            return index
+    return None
+
+
+def _boundary_signature(line: str) -> str | None:
+    collapsed = WHITESPACE_RE.sub(" ", line.strip())
+    if not collapsed:
+        return None
+    if len(collapsed) > 90:
+        return None
+
+    word_count = len(collapsed.split())
+    if word_count > 12:
+        return None
+
+    lowered = re.sub(r"\d+", "#", collapsed.lower())
+    lowered = NON_ALNUM_RE.sub(" ", lowered)
+    lowered = WHITESPACE_RE.sub(" ", lowered).strip()
+    return lowered or None
+
+
+def _is_page_number_line(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return False
+    lowered = stripped.lower()
+    return bool(PAGE_NUMBER_RE.fullmatch(lowered) or ROMAN_NUMERAL_RE.fullmatch(lowered))
 
 
 def extract_document_pages(file_path: Path) -> tuple[int, list[DocumentPage]]:
     pages: list[DocumentPage] = []
 
     with fitz.open(file_path) as pdf_document:
-        for index, page in enumerate(pdf_document, start=1):
-            raw_text = page.get_text("text")
+        raw_page_texts = [page.get_text("text") for page in pdf_document]
+        normalized_page_texts = normalize_document_pages(raw_page_texts)
+
+        for index, raw_text in enumerate(raw_page_texts, start=1):
             pages.append(
                 DocumentPage(
                     page_number=index,
                     raw_text=raw_text,
-                    normalized_text=normalize_page_text(raw_text),
+                    normalized_text=normalized_page_texts[index - 1],
                 )
             )
 
