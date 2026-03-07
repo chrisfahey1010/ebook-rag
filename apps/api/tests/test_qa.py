@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from ebook_rag_api.services.qa import (
+    ExtractiveAnswerProvider,
     RetrievedChunkContext,
     assemble_answer_contexts,
     select_evidence_citations,
@@ -222,6 +223,89 @@ def test_qa_answer_can_combine_support_for_multi_part_questions(
     assert cited_pages == {1, 2}
 
 
+def test_extractive_provider_requires_support_for_each_multi_part_facet() -> None:
+    provider = ExtractiveAnswerProvider()
+    contexts = [
+        RetrievedChunkContext(
+            chunk_id="chunk-1",
+            document_id="doc-1",
+            document_title="Manual",
+            document_filename="manual.pdf",
+            chunk_index=1,
+            page_start=1,
+            page_end=1,
+            text="Before leaving camp, charge the rover battery fully.",
+            token_estimate=8,
+            score=0.96,
+            rerank_score=0.96,
+        )
+    ]
+
+    answer = provider.generate_answer(
+        question="What should the crew do before leaving camp and after a rocky traverse?",
+        contexts=contexts,
+    )
+
+    assert answer.supported is False
+    assert answer.citations == []
+
+
+def test_extractive_provider_prefers_anchor_terms_over_repeated_verbs_in_multi_part_questions() -> None:
+    provider = ExtractiveAnswerProvider()
+    contexts = [
+        RetrievedChunkContext(
+            chunk_id="chunk-1",
+            document_id="doc-1",
+            document_title="Manual",
+            document_filename="manual.pdf",
+            chunk_index=1,
+            page_start=1,
+            page_end=1,
+            text="Inspect the heat shield before ignition and confirm all external locks are clear.",
+            token_estimate=12,
+            score=0.97,
+            rerank_score=0.97,
+        ),
+        RetrievedChunkContext(
+            chunk_id="chunk-2",
+            document_id="doc-1",
+            document_title="Manual",
+            document_filename="manual.pdf",
+            chunk_index=2,
+            page_start=4,
+            page_end=4,
+            text="Deploy the parachute after atmospheric entry, then confirm the descent thrusters are armed.",
+            token_estimate=12,
+            score=0.98,
+            rerank_score=0.98,
+        ),
+        RetrievedChunkContext(
+            chunk_id="chunk-3",
+            document_id="doc-1",
+            document_title="Manual",
+            document_filename="manual.pdf",
+            chunk_index=3,
+            page_start=5,
+            page_end=5,
+            text="After landing, archive the vibration log, inspect the hull seals, and compare the final fuel readings with the ascent checklist.",
+            token_estimate=18,
+            score=0.95,
+            rerank_score=0.95,
+        ),
+    ]
+
+    answer = provider.generate_answer(
+        question="What should the crew confirm before ignition and after landing?",
+        contexts=contexts,
+    )
+
+    assert answer.supported is True
+    assert "inspect the heat shield" in answer.answer_text.lower()
+    assert "inspect the hull seals" in answer.answer_text.lower()
+    assert "descent thrusters" not in answer.answer_text.lower()
+    assert [citation.page_start for citation in answer.citations] == [1, 5]
+
+
 def test_assemble_answer_contexts_skips_irrelevant_adjacent_chunks() -> None:
     contexts = [
         RetrievedChunkContext(
@@ -388,6 +472,59 @@ def test_select_evidence_citations_filters_weak_overlap_contexts() -> None:
     )
 
     assert [citation.chunk_id for citation in citations] == ["chunk-1"]
+
+
+def test_select_evidence_citations_use_best_context_per_answer_sentence() -> None:
+    first_context = RetrievedChunkContext(
+        chunk_id="chunk-1",
+        document_id="doc-1",
+        document_title="Manual",
+        document_filename="manual.pdf",
+        chunk_index=1,
+        page_start=1,
+        page_end=1,
+        text="Before launch, inspect the cooling lines and verify the hatch seal.",
+        token_estimate=12,
+        score=0.95,
+        rerank_score=0.95,
+    )
+    distractor_context = RetrievedChunkContext(
+        chunk_id="chunk-2",
+        document_id="doc-1",
+        document_title="Manual",
+        document_filename="manual.pdf",
+        chunk_index=2,
+        page_start=2,
+        page_end=2,
+        text=(
+            "Before launch, archive the maintenance log and after landing, "
+            "inspect the cargo straps."
+        ),
+        token_estimate=15,
+        score=0.98,
+        rerank_score=0.98,
+    )
+    second_context = RetrievedChunkContext(
+        chunk_id="chunk-3",
+        document_id="doc-1",
+        document_title="Manual",
+        document_filename="manual.pdf",
+        chunk_index=3,
+        page_start=3,
+        page_end=3,
+        text="After landing, inspect the hull seals and record the fuel totals.",
+        token_estimate=12,
+        score=0.94,
+        rerank_score=0.94,
+    )
+
+    citations = select_evidence_citations(
+        answer_text="Inspect the cooling lines before launch. After landing, inspect the hull seals.",
+        contexts=[first_context, distractor_context, second_context],
+        primary_context=first_context,
+    )
+
+    assert [citation.chunk_id for citation in citations] == ["chunk-1", "chunk-3"]
 
 
 def test_assemble_answer_contexts_prefers_direct_evidence_over_broader_summary() -> None:

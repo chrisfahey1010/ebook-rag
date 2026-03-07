@@ -54,6 +54,12 @@ class SentenceCandidate:
 
 
 @dataclass(frozen=True)
+class QuestionFacet:
+    text: str
+    terms: set[str]
+
+
+@dataclass(frozen=True)
 class QATimingBreakdown:
     normalization_ms: float
     retrieval_ms: float
@@ -87,7 +93,8 @@ class ExtractiveAnswerProvider:
         if not contexts:
             return _unsupported_answer()
 
-        question_terms = _tokenize(question)
+        question_facets = _build_question_facets(question)
+        question_terms = set().union(*(facet.terms for facet in question_facets))
         sentence_candidates = _build_sentence_candidates(
             question=question,
             question_terms=question_terms,
@@ -96,16 +103,12 @@ class ExtractiveAnswerProvider:
         if not sentence_candidates or sentence_candidates[0].score < 0.2:
             return _unsupported_answer()
 
-        best_candidate = sentence_candidates[0]
-        selected_candidates = [best_candidate]
-        if _question_needs_multi_sentence_answer(question):
-            second_candidate = _select_complementary_sentence(
-                candidates=sentence_candidates[1:],
-                selected_candidates=selected_candidates,
-                question_terms=question_terms,
-            )
-            if second_candidate is not None:
-                selected_candidates.append(second_candidate)
+        selected_candidates = _select_answer_sentences(
+            question_facets=question_facets,
+            sentence_candidates=sentence_candidates,
+        )
+        if not selected_candidates:
+            return _unsupported_answer()
 
         answer_text = " ".join(
             sentence if sentence.endswith((".", "!", "?")) else f"{sentence}."
@@ -114,7 +117,7 @@ class ExtractiveAnswerProvider:
         citations = select_evidence_citations(
             answer_text=answer_text,
             contexts=contexts,
-            primary_context=best_candidate.context,
+            primary_context=selected_candidates[0].context,
         )
 
         return GeneratedAnswer(answer_text=answer_text, supported=True, citations=citations)
@@ -549,6 +552,38 @@ def select_evidence_citations(
     contexts: list[RetrievedChunkContext],
     primary_context: RetrievedChunkContext | None = None,
 ) -> list[RetrievedChunkContext]:
+    citations: list[RetrievedChunkContext] = []
+    seen_chunk_ids: set[str] = set()
+    support_units = _split_support_units(answer_text)
+    for index, support_unit in enumerate(support_units):
+        ranked = _rank_evidence_contexts(
+            answer_text=support_unit,
+            contexts=contexts,
+            primary_context=primary_context if index == 0 else None,
+        )
+        if not ranked:
+            continue
+        _, context = ranked[0]
+        if context.chunk_id in seen_chunk_ids:
+            continue
+        citations.append(context)
+        seen_chunk_ids.add(context.chunk_id)
+        if len(citations) == min(3, max(len(support_units), 1)):
+            break
+
+    if citations:
+        return citations
+    if primary_context is not None:
+        return [_build_evidence_excerpt(answer_text=answer_text, context=primary_context)]
+    return []
+
+
+def _rank_evidence_contexts(
+    *,
+    answer_text: str,
+    contexts: list[RetrievedChunkContext],
+    primary_context: RetrievedChunkContext | None = None,
+) -> list[tuple[float, RetrievedChunkContext]]:
     answer_terms = _tokenize(answer_text)
     ranked: list[tuple[float, RetrievedChunkContext]] = []
     for context in contexts:
@@ -559,20 +594,16 @@ def select_evidence_citations(
         overlap = len(answer_terms & context_terms)
         phrase_match = contains_normalized_phrase(answer_text, evidence_context.text)
         minimum_overlap = 1 if len(answer_terms) <= 3 else 2
-        if overlap == 0 and (
-            primary_context is None or context.chunk_id != primary_context.chunk_id
-        ):
+        is_primary = primary_context is not None and context.chunk_id == primary_context.chunk_id
+        if overlap == 0 and not is_primary:
             continue
-        if (
-            context.chunk_id != (primary_context.chunk_id if primary_context is not None else None)
-            and overlap < minimum_overlap
-            and not phrase_match
-        ):
+        if not is_primary and overlap < minimum_overlap and not phrase_match:
             continue
+
         score = overlap + context.score
         if phrase_match:
             score += 0.5
-        if primary_context is not None and context.chunk_id == primary_context.chunk_id:
+        if is_primary:
             score += 1.0
         ranked.append((score, evidence_context))
 
@@ -584,24 +615,7 @@ def select_evidence_citations(
             item[1].chunk_index,
         )
     )
-    citations: list[RetrievedChunkContext] = []
-    seen_chunk_ids: set[str] = set()
-    best_ranked_score = ranked[0][0] if ranked else 0.0
-    for score, context in ranked:
-        if context.chunk_id in seen_chunk_ids:
-            continue
-        if citations and score < best_ranked_score - 0.75:
-            continue
-        citations.append(context)
-        seen_chunk_ids.add(context.chunk_id)
-        if len(citations) == 2:
-            break
-
-    if citations:
-        return citations
-    if primary_context is not None:
-        return [_build_evidence_excerpt(answer_text=answer_text, context=primary_context)]
-    return []
+    return ranked
 
 
 def _build_evidence_excerpt(
@@ -706,6 +720,38 @@ def _rank_contexts_for_selection(
     return sorted(contexts, key=sort_key, reverse=True)
 
 
+def _build_question_facets(question: str) -> list[QuestionFacet]:
+    normalized_question = " ".join(question.split()).strip()
+    base_terms = _tokenize(normalized_question)
+    if not normalized_question or not base_terms:
+        return []
+    if not _question_needs_multi_sentence_answer(normalized_question):
+        return [QuestionFacet(text=normalized_question, terms=base_terms)]
+
+    raw_facets = [
+        fragment.strip(" ,;:")
+        for fragment in re.split(r"\s+(?:and|or|then)\s+", normalized_question, flags=re.IGNORECASE)
+        if fragment.strip(" ,;:")
+    ]
+    if len(raw_facets) < 2:
+        return [QuestionFacet(text=normalized_question, terms=base_terms)]
+
+    facets: list[QuestionFacet] = []
+    seen_terms: set[frozenset[str]] = set()
+    for raw_facet in raw_facets:
+        facet_text = raw_facet
+        facet_terms = _tokenize(facet_text)
+        if not facet_terms:
+            continue
+        frozen_terms = frozenset(facet_terms)
+        if frozen_terms in seen_terms:
+            continue
+        seen_terms.add(frozen_terms)
+        facets.append(QuestionFacet(text=facet_text, terms=facet_terms))
+
+    return facets or [QuestionFacet(text=normalized_question, terms=base_terms)]
+
+
 def _build_sentence_candidates(
     *,
     question: str,
@@ -758,23 +804,114 @@ def _question_needs_multi_sentence_answer(question: str) -> bool:
     return " and " in lowered or "both " in lowered
 
 
-def _select_complementary_sentence(
+def _select_answer_sentences(
     *,
+    question_facets: list[QuestionFacet],
+    sentence_candidates: list[SentenceCandidate],
+) -> list[SentenceCandidate]:
+    selected_candidates: list[SentenceCandidate] = []
+    for facet in question_facets:
+        candidate = _select_best_candidate_for_facet(
+            facet=facet,
+            candidates=sentence_candidates,
+            selected_candidates=selected_candidates,
+        )
+        if candidate is None:
+            if len(question_facets) > 1:
+                return []
+            break
+        if not any(
+            selected.sentence == candidate.sentence
+            and selected.context.chunk_id == candidate.context.chunk_id
+            for selected in selected_candidates
+        ):
+            selected_candidates.append(candidate)
+
+    if selected_candidates:
+        return selected_candidates
+
+    if sentence_candidates and sentence_candidates[0].score >= 0.2:
+        return [sentence_candidates[0]]
+
+    return []
+
+
+def _select_best_candidate_for_facet(
+    *,
+    facet: QuestionFacet,
     candidates: list[SentenceCandidate],
     selected_candidates: list[SentenceCandidate],
-    question_terms: set[str],
 ) -> SentenceCandidate | None:
-    covered_terms = set().union(*(candidate.terms & question_terms for candidate in selected_candidates))
+    covered_terms = set().union(
+        *(candidate.terms & facet.terms for candidate in selected_candidates)
+    )
+    scored_candidates: list[tuple[tuple[float, float, float, float], SentenceCandidate]] = []
     for candidate in candidates:
-        if any(candidate.sentence == selected.sentence for selected in selected_candidates):
+        facet_score = _score_sentence_against_text(
+            prompt_text=facet.text,
+            prompt_terms=facet.terms,
+            candidate=candidate,
+        )
+        if facet_score < 0.2:
             continue
-        added_terms = (candidate.terms & question_terms) - covered_terms
-        if not added_terms and candidate.score < selected_candidates[0].score * 0.85:
+        added_terms = len((candidate.terms & facet.terms) - covered_terms)
+        duplicate_penalty = 0.0 if added_terms else -0.2
+        scored_candidates.append(
+            (
+                (
+                    facet_score,
+                    float(added_terms),
+                    candidate.score + duplicate_penalty,
+                    candidate.context.score,
+                ),
+                candidate,
+            )
+        )
+
+    if not scored_candidates:
+        return None
+
+    scored_candidates.sort(
+        key=lambda item: (
+            -item[0][0],
+            -item[0][1],
+            -item[0][2],
+            -item[0][3],
+            item[1].context.page_start,
+            item[1].context.chunk_index,
+        )
+    )
+    return scored_candidates[0][1]
+
+
+def _score_sentence_against_text(
+    *,
+    prompt_text: str,
+    prompt_terms: set[str],
+    candidate: SentenceCandidate,
+) -> float:
+    overlap = len(prompt_terms & candidate.terms)
+    if overlap == 0:
+        return 0.0
+    lexical_score = overlap / max(len(prompt_terms), 1)
+    precision = overlap / max(len(candidate.terms), 1)
+    phrase_bonus = 0.2 if contains_normalized_phrase(prompt_text, candidate.sentence) else 0.0
+    return lexical_score + precision * 0.35 + phrase_bonus + max(candidate.context.score, 0.0) * 0.15
+
+
+def _split_support_units(answer_text: str) -> list[str]:
+    support_units: list[str] = []
+    seen_units: set[str] = set()
+    for sentence in _split_sentences(answer_text):
+        normalized_sentence = sentence.strip()
+        if not normalized_sentence:
             continue
-        if candidate.score < 0.2:
-            continue
-        return candidate
-    return None
+        sentence_key = normalized_sentence.casefold()
+        if sentence_key not in seen_units:
+            support_units.append(normalized_sentence)
+            seen_units.add(sentence_key)
+
+    return support_units
 
 
 def _is_same_location_as_existing(

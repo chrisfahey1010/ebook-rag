@@ -43,6 +43,13 @@
           "citation_match_mode": "all"
         },
         {
+          "question": "What should be verified before leaving camp and where should replacement batteries be stored?",
+          "expected_supported": true,
+          "expected_answer_contains": ["spare pack is sealed", "dry compartment"],
+          "expected_citation_pages": [1, 5],
+          "citation_match_mode": "all"
+        },
+        {
           "question": "What does the handbook say about whale migration routes?",
           "expected_supported": false,
           "expected_citation_pages": []
