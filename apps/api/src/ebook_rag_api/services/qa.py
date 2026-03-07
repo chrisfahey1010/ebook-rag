@@ -53,6 +53,7 @@ class RetrievedChunkContext:
     page_start: int
     page_end: int
     text: str
+    token_estimate: int = 0
     dense_score: float = 0.0
     lexical_score: float = 0.0
     hybrid_score: float = 0.0
@@ -301,6 +302,7 @@ def build_chunk_context(match: ChunkSearchMatch) -> RetrievedChunkContext:
         page_start=chunk.page_start,
         page_end=chunk.page_end,
         text=chunk.text,
+        token_estimate=chunk.token_estimate,
         dense_score=match.dense_score,
         lexical_score=match.lexical_score,
         hybrid_score=match.hybrid_score,
@@ -312,7 +314,113 @@ def build_chunk_context(match: ChunkSearchMatch) -> RetrievedChunkContext:
 def assemble_answer_contexts(
     contexts: list[RetrievedChunkContext],
 ) -> list[RetrievedChunkContext]:
-    return list(contexts)
+    if not contexts:
+        return []
+
+    selected: list[RetrievedChunkContext] = []
+    consumed_chunk_ids: set[str] = set()
+    token_budget = 1400
+    remaining_budget = token_budget
+
+    for context in _deduplicate_contexts(contexts):
+        if context.chunk_id in consumed_chunk_ids:
+            continue
+        normalized_cost = max(context.token_estimate, _estimate_tokens(context.text), 1)
+        if normalized_cost > remaining_budget and selected:
+            continue
+
+        selected.append(context)
+        consumed_chunk_ids.add(context.chunk_id)
+        remaining_budget -= normalized_cost
+        if remaining_budget <= 0:
+            break
+
+        adjacent_context = _select_adjacent_context(
+            base_context=context,
+            all_contexts=contexts,
+            remaining_budget=remaining_budget,
+            consumed_chunk_ids=consumed_chunk_ids,
+        )
+        if adjacent_context is not None:
+            adjacent_cost = max(
+                adjacent_context.token_estimate,
+                _estimate_tokens(adjacent_context.text),
+                1,
+            )
+            selected.append(adjacent_context)
+            consumed_chunk_ids.add(adjacent_context.chunk_id)
+            remaining_budget -= adjacent_cost
+            if remaining_budget <= 0:
+                break
+
+    if selected:
+        return selected
+
+    smallest_context = min(
+        contexts,
+        key=lambda context: max(context.token_estimate, _estimate_tokens(context.text), 1),
+    )
+    return [smallest_context]
+
+
+def _deduplicate_contexts(
+    contexts: list[RetrievedChunkContext],
+) -> list[RetrievedChunkContext]:
+    deduplicated: list[RetrievedChunkContext] = []
+    seen_texts: list[set[str]] = []
+
+    for context in contexts:
+        terms = _tokenize(context.text)
+        is_duplicate = any(
+            _jaccard_similarity(terms, seen_terms) >= 0.9 for seen_terms in seen_texts
+        )
+        if is_duplicate:
+            continue
+        deduplicated.append(context)
+        seen_texts.append(terms)
+    return deduplicated
+
+
+def _select_adjacent_context(
+    *,
+    base_context: RetrievedChunkContext,
+    all_contexts: list[RetrievedChunkContext],
+    remaining_budget: int,
+    consumed_chunk_ids: set[str],
+) -> RetrievedChunkContext | None:
+    adjacent_contexts = [
+        candidate
+        for candidate in all_contexts
+        if candidate.document_id == base_context.document_id
+        and candidate.chunk_id != base_context.chunk_id
+        and candidate.chunk_id not in consumed_chunk_ids
+        and abs(candidate.chunk_index - base_context.chunk_index) == 1
+    ]
+    if not adjacent_contexts:
+        return None
+
+    best_candidate = max(adjacent_contexts, key=lambda context: context.score)
+    candidate_cost = max(
+        best_candidate.token_estimate,
+        _estimate_tokens(best_candidate.text),
+        1,
+    )
+    if candidate_cost > remaining_budget:
+        return None
+    return best_candidate
+
+
+def _estimate_tokens(text: str) -> int:
+    return max(1, len(TOKEN_RE.findall(text)))
+
+
+def _jaccard_similarity(left: set[str], right: set[str]) -> float:
+    if not left and not right:
+        return 1.0
+    union = left | right
+    if not union:
+        return 0.0
+    return len(left & right) / len(union)
 
 
 def _tokenize(text: str) -> set[str]:

@@ -1,6 +1,7 @@
 from ebook_rag_api.services.qa import (
     OpenAICompatibleAnswerProvider,
     RetrievedChunkContext,
+    assemble_answer_contexts,
     build_qa_prompt,
     extract_chat_completion_text,
 )
@@ -163,3 +164,111 @@ def test_openai_compatible_provider_maps_insufficient_support(monkeypatch) -> No
 
     assert answer.supported is False
     assert answer.citations == []
+
+
+def test_assemble_answer_contexts_deduplicates_near_identical_chunks() -> None:
+    selected = assemble_answer_contexts(
+        [
+            RetrievedChunkContext(
+                chunk_id="chunk-1",
+                document_id="doc-1",
+                document_title="Guide",
+                document_filename="guide.pdf",
+                chunk_index=0,
+                page_start=1,
+                page_end=1,
+                text="Charge the battery before long field sessions.",
+                token_estimate=7,
+                score=0.95,
+            ),
+            RetrievedChunkContext(
+                chunk_id="chunk-2",
+                document_id="doc-1",
+                document_title="Guide",
+                document_filename="guide.pdf",
+                chunk_index=4,
+                page_start=2,
+                page_end=2,
+                text="Charge the battery before long field sessions.",
+                token_estimate=7,
+                score=0.91,
+            ),
+        ]
+    )
+
+    assert len(selected) == 1
+    assert selected[0].chunk_id == "chunk-1"
+
+
+def test_assemble_answer_contexts_includes_adjacent_chunks_within_budget() -> None:
+    selected = assemble_answer_contexts(
+        [
+            RetrievedChunkContext(
+                chunk_id="chunk-10",
+                document_id="doc-1",
+                document_title="Guide",
+                document_filename="guide.pdf",
+                chunk_index=10,
+                page_start=5,
+                page_end=5,
+                text="First inspect the pressure seal.",
+                token_estimate=5,
+                score=0.96,
+            ),
+            RetrievedChunkContext(
+                chunk_id="chunk-11",
+                document_id="doc-1",
+                document_title="Guide",
+                document_filename="guide.pdf",
+                chunk_index=11,
+                page_start=5,
+                page_end=5,
+                text="Then tighten the retaining ring.",
+                token_estimate=5,
+                score=0.88,
+            ),
+        ]
+    )
+
+    assert len(selected) == 2
+    assert selected[0].chunk_id == "chunk-10"
+    assert selected[1].chunk_id == "chunk-11"
+    assert selected[0].text == "First inspect the pressure seal."
+    assert selected[1].text == "Then tighten the retaining ring."
+    assert selected[0].page_start == 5
+    assert selected[1].page_end == 5
+
+
+def test_assemble_answer_contexts_respects_budget_for_large_chunks() -> None:
+    oversized_text = " ".join(["alpha"] * 900)
+    selected = assemble_answer_contexts(
+        [
+            RetrievedChunkContext(
+                chunk_id="chunk-1",
+                document_id="doc-1",
+                document_title="Guide",
+                document_filename="guide.pdf",
+                chunk_index=0,
+                page_start=1,
+                page_end=1,
+                text=oversized_text,
+                token_estimate=900,
+                score=0.97,
+            ),
+            RetrievedChunkContext(
+                chunk_id="chunk-2",
+                document_id="doc-1",
+                document_title="Guide",
+                document_filename="guide.pdf",
+                chunk_index=1,
+                page_start=1,
+                page_end=1,
+                text=oversized_text.replace("alpha", "beta"),
+                token_estimate=900,
+                score=0.89,
+            ),
+        ]
+    )
+
+    assert len(selected) == 1
+    assert selected[0].chunk_id == "chunk-1"

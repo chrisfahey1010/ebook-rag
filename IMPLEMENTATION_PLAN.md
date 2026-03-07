@@ -29,7 +29,7 @@ The main gap is that several critical pieces are still baseline implementations:
   - embeddings now support hashing, `sentence-transformers`, and OpenAI-compatible endpoints
   - reranking now supports token overlap, local cross-encoders, and an OpenAI-compatible adapter
   - answer generation still needs clearer local-runtime presets and documentation
-- context assembly is currently pass-through
+- context assembly is improved but still heuristic rather than benchmark-tuned
 - the current vector schema is fixed at 128 dimensions, so larger embedding outputs are adapted into the existing storage shape
 - ingestion is synchronous and lacks reprocessing/status APIs from the spec
 - evaluation exists, but the benchmark set and regression workflow are still minimal
@@ -134,11 +134,14 @@ Once the remaining provider-layer documentation is in place, retrieval quality s
   - whitespace normalization
   - basic punctuation cleanup
   - optional acronym/query expansion only if benchmarked
-- improve context assembly:
-  - deduplicate near-identical chunks
-  - merge adjacent chunks when useful
-  - enforce token budget
-  - prefer context diversity over raw score duplication
+- continue improving context assembly:
+  - completed:
+    - deduplicate near-identical chunks
+    - pull adjacent chunks into the final context window when useful
+    - enforce a token budget
+  - remaining:
+    - tune diversity/selection behavior against benchmarks instead of heuristics alone
+    - improve citation precision so answer traces can distinguish selected context from actually used evidence
 
 #### Why this is the second milestone
 
@@ -350,8 +353,8 @@ The project should be considered V1 complete when all of the following are true:
 
 The best next coding slice is:
 
-1. replace hashing embeddings with a real provider abstraction
-2. add a local model-backed reranker behind the same config system
-3. expand eval coverage so retrieval changes can be measured
+1. decide whether to keep the fixed 128-dimension vector schema for V1 or migrate to model-native dimensions now
+2. expand eval coverage so retrieval and answer-quality changes can be measured against a less synthetic benchmark set
+3. add ingestion status and reprocessing APIs so model or chunking changes can be applied without re-uploading documents
 
-That sequence keeps the OpenAI-compatible path intact while making the project genuinely useful with smaller local models.
+That sequence keeps the OpenAI-compatible path intact while reducing the main remaining retrieval risk, making quality changes measurable, and closing one of the clearest spec gaps.

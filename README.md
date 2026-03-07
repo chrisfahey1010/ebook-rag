@@ -98,6 +98,7 @@ Current implementation includes:
 - dense retrieval executed in the database
 - optional lexical retrieval blended with dense candidates before reranking
 - reranking over hybrid retrieval candidates before answer context assembly
+- answer context assembly with near-duplicate suppression, adjacent-chunk expansion, and token-budgeting
 - pluggable reranker providers with token-overlap fallback, local cross-encoder support, and an OpenAI-compatible adapter
 - grounded question answering with citations
 - pluggable QA providers, including a local extractive fallback and an OpenAI-compatible adapter
@@ -107,8 +108,8 @@ Current implementation includes:
 
 Current limitations:
 
-- context assembly is still a pass-through selection of retrieved chunks
 - embeddings are currently stored in a fixed 128-dimension schema, so larger model outputs are adapted to fit the current `pgvector` column
+- context assembly is still heuristic and citations are selected from the final context window rather than from a richer answer-trace model
 - retrieval quality is now measurable, but benchmark results should be refreshed and compared after additional retrieval improvements
 
 ## API snapshot
@@ -126,7 +127,7 @@ Upload registers the PDF, computes its SHA-256 checksum, stores the file locally
 
 Retrieval accepts a natural-language query, embeds it, blends dense and lexical candidates, reranks them, and returns ranked matches with document metadata, page spans, dense, lexical, hybrid, rerank, and final scores. If a configured reranker backend fails at runtime, retrieval falls back to the local token-overlap reranker so the request still completes.
 
-QA builds on retrieval and returns a grounded answer plus structured citations. The default local answerer is conservative and can decline to answer when the indexed content does not provide enough support. A configurable OpenAI-compatible provider path is also available for model-backed generation.
+QA builds on retrieval and returns a grounded answer plus structured citations. Before prompt construction, the QA layer now deduplicates near-identical retrieval hits, pulls in adjacent chunks when budget allows, and limits the final context window. The default local answerer is conservative and can decline to answer when the indexed content does not provide enough support. A configurable OpenAI-compatible provider path is also available for model-backed generation.
 
 Provider selection is environment-driven. Embeddings, reranking, and answer generation can now be configured independently for local-only, hosted, or mixed setups.
 
