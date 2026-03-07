@@ -172,3 +172,44 @@ def test_debug_retrieve_returns_ranked_candidates_for_workspace_inspection(
     assert "dense_score" in payload["matches"][0]
     assert "rerank_score" in payload["matches"][0]
     assert payload["matches"][0]["score"] >= payload["matches"][-1]["score"]
+
+
+def test_retrieval_falls_back_to_token_overlap_when_reranker_fails(
+    client: TestClient, pdf_factory, monkeypatch
+) -> None:
+    upload = client.post(
+        "/api/documents/upload",
+        files={
+            "file": (
+                "manual.pdf",
+                pdf_factory(
+                    [
+                        "Maintenance\n\nInspect the cooling lines before launch.",
+                        "Operations\n\nArchive the telemetry after landing.",
+                    ]
+                ),
+                "application/pdf",
+            )
+        },
+    )
+    assert upload.status_code == 201
+
+    class _BrokenReranker:
+        def score(self, query: str, passages: list[str]) -> list[float]:
+            raise RuntimeError("reranker backend unavailable")
+
+    monkeypatch.setattr(
+        "ebook_rag_api.services.retrieval.get_reranker",
+        lambda: _BrokenReranker(),
+    )
+
+    response = client.post(
+        "/api/retrieval/search",
+        json={"query": "What should happen before launch?", "top_k": 3},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["matches"]
+    assert "inspect the cooling lines" in payload["matches"][0]["text"].lower()
+    assert payload["matches"][0]["rerank_score"] > 0

@@ -8,7 +8,7 @@ from ebook_rag_api.core.config import get_settings
 from ebook_rag_api.db.vector import is_postgresql_dialect
 from ebook_rag_api.models import Document, DocumentChunk
 from ebook_rag_api.services.embeddings import get_embedding_provider
-from ebook_rag_api.services.reranking import get_reranker
+from ebook_rag_api.services.reranking import TokenOverlapReranker, get_reranker
 
 WHITESPACE_RE = re.compile(r"\s+")
 
@@ -114,7 +114,11 @@ def rerank_matches(
         return []
 
     reranker = get_reranker()
-    rerank_scores = reranker.score(query, [chunk.text for chunk, _ in dense_matches])
+    passages = [chunk.text for chunk, _ in dense_matches]
+    try:
+        rerank_scores = reranker.score(query, passages)
+    except Exception:
+        rerank_scores = TokenOverlapReranker().score(query, passages)
     matches = [
         ChunkSearchMatch(
             chunk=chunk,
