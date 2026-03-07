@@ -33,6 +33,7 @@ The main gap is that several critical pieces are still baseline implementations:
 - changing embedding dimensions now requires a migration plus document reprocessing, so the reindex workflow needs to stay explicit in docs and tooling
 - ingestion is still synchronous, even though status and reprocessing APIs from the spec are now in place
 - evaluation now includes saved JSON/Markdown benchmark artifacts, baseline comparison, a broader curated local fixture, and additional debug routes, but citation precision still drops on some multi-part questions
+- the new long-form `hells_angels.pdf` benchmark now exposes additional long-document weaknesses in named-entity retrieval, exact-page citation precision, and unsupported-answer rejection that the synthetic fixture does not catch
 
 ## Planning principles
 
@@ -140,9 +141,11 @@ Once the remaining provider-layer documentation is in place, retrieval quality s
     - pull adjacent chunks into the final context window when useful
     - enforce a token budget
     - prefer direct evidence over broader summary chunks when selecting answer context
+    - require support for each facet of a composite question instead of answering from the strongest partial match
   - remaining:
     - tune diversity/selection behavior against benchmarks instead of heuristics alone
     - continue improving citation precision beyond the current selected-context vs cited-evidence split
+    - improve long-document retrieval for named entities and low-frequency facts revealed by the real-book benchmark
 
 #### Why this is the second milestone
 
@@ -246,10 +249,13 @@ This project should be able to prove quality improvements, not just demonstrate 
   - benchmark runner can persist JSON and Markdown summaries
   - benchmark runs can be compared against a prior baseline with regression-friendly metrics
   - expanded curated eval set with harder multi-page and citation-coverage cases
+  - benchmark runner can now evaluate either inline synthetic PDFs or real local PDFs via `source_pdf`
+  - added a dedicated long-form benchmark against `hells_angels.pdf`
   - `GET /api/debug/documents/{document_id}/chunks`
   - `POST /api/debug/rerank`
 - remaining:
   - keep expanding the benchmark dataset toward harder multi-page citation and unsupported-answer cases
+  - decide which long-form benchmark thresholds should become regression-gating versus exploratory-only
 - persist or snapshot benchmark results so runs are comparable over time
 - optionally add a simple benchmark report artifact in JSON or Markdown
 
@@ -355,8 +361,8 @@ The project should be considered V1 complete when all of the following are true:
 
 The best next coding slice is:
 
-1. tune multi-part answer synthesis so composite questions prefer the correct supporting facts instead of nearby but semantically related sentences
-2. tighten citation attribution for composite answers so cited pages collapse to only the actually used evidence pages
-3. keep expanding the curated eval set with harder multi-page support and unsupported-answer edge cases as those failures are discovered
+1. tune long-document retrieval against the `hells_angels.pdf` benchmark, especially for named entities, exact-page facts, and early-page recall
+2. tighten unsupported-answer rejection on long documents so obviously out-of-scope questions stop returning semantically adjacent sentences
+3. keep expanding the real-document benchmark set alongside the synthetic fixture so tuning does not overfit to one style of test data
 
-That sequence keeps the regression tooling in the loop, builds on the new debug surfaces and broader eval fixture, and focuses the next work on the benchmark failures that still remain instead of shifting to new product surface area.
+That sequence keeps the regression tooling in the loop, uses the new long-form benchmark to surface realistic retrieval failures, and focuses the next work on the highest-signal quality gaps instead of shifting to new product surface area.

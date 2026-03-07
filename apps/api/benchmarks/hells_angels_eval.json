@@ -1,0 +1,71 @@
+{
+  "name": "hells-angels-longform-eval",
+  "documents": [
+    {
+      "filename": "hells_angels.pdf",
+      "source_pdf": "benchmarks/local/hells_angels.pdf",
+      "questions": [
+        {
+          "question": "Who asked Hunter S. Thompson to write the original article on motorcycle gangs?",
+          "expected_supported": true,
+          "expected_answer_contains": ["carey mcwilliams"],
+          "expected_citation_pages": [2]
+        },
+        {
+          "question": "When did the original article appear in The Nation?",
+          "expected_supported": true,
+          "expected_answer_contains": ["april 1965"],
+          "expected_citation_pages": [2]
+        },
+        {
+          "question": "Where were the outlaw motorcyclists heading at the start of the book?",
+          "expected_supported": true,
+          "expected_answer_contains": ["monterey peninsula"],
+          "expected_citation_pages": [3]
+        },
+        {
+          "question": "Which senator does Thompson say did not seize on the Hell's Angels issue?",
+          "expected_supported": true,
+          "expected_answer_contains": ["goldwater"],
+          "expected_citation_pages": [25]
+        },
+        {
+          "question": "How many police departments' testimony is cited as proof in the Attorney General discussion?",
+          "expected_supported": true,
+          "expected_answer_contains": ["104 police departments"],
+          "expected_citation_pages": [50]
+        },
+        {
+          "question": "What nickname does Rodger use for himself?",
+          "expected_supported": true,
+          "expected_answer_contains": ["rodger the lodger"],
+          "expected_citation_pages": [100]
+        },
+        {
+          "question": "Which drug does Thompson say was plentiful and then legal at the parties?",
+          "expected_supported": true,
+          "expected_answer_contains": ["lsd"],
+          "expected_citation_pages": [150]
+        },
+        {
+          "question": "Where was Hunter Thompson a native of?",
+          "expected_supported": true,
+          "expected_answer_contains": ["louisville, kentucky"],
+          "expected_citation_pages": [186]
+        },
+        {
+          "question": "Who asked Thompson to write the article and when did it appear in The Nation?",
+          "expected_supported": true,
+          "expected_answer_contains": ["carey mcwilliams", "april 1965"],
+          "expected_citation_pages": [2],
+          "citation_match_mode": "all"
+        },
+        {
+          "question": "What does the book say about social media moderation policies?",
+          "expected_supported": false,
+          "expected_citation_pages": []
+        }
+      ]
+    }
+  ]
+}

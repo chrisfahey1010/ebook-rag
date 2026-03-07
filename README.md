@@ -157,6 +157,12 @@ uv run python scripts/run_eval.py
 
 This now uses [`curated_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/curated_eval.json) by default to upload a broader curated set of local PDFs, ask benchmark questions, and print retrieval hit rate, citation hit rate, support accuracy, answer match rate, unsupported precision, and latency metrics. Individual questions can also declare `citation_match_mode` so stricter page-coverage expectations can be added over time. The older [`sample_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/sample_eval.json) fixture is still available if you want a smaller smoke test.
 
+For longer-document tuning, the runner also supports benchmarks that point at a real local PDF via `source_pdf`. The repo now includes [`hells_angels_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/hells_angels_eval.json), which exercises selected questions against the full 186-page [`hells_angels.pdf`](/home/chris/repos/ebook-rag/apps/api/benchmarks/local/hells_angels.pdf):
+
+```bash
+uv run python scripts/run_eval.py --benchmark benchmarks/hells_angels_eval.json
+```
+
 For regression tracking, the benchmark runner can also persist JSON and Markdown artifacts and compare a run against a saved baseline:
 
 ```bash

@@ -81,6 +81,20 @@ def resolve_project_relative_path(raw_path: str) -> Path:
     return Path(__file__).resolve().parent.parent / candidate
 
 
+def load_benchmark_document_bytes(document_case: dict[str, Any]) -> bytes:
+    source_pdf = document_case.get("source_pdf")
+    if source_pdf:
+        return resolve_project_relative_path(source_pdf).read_bytes()
+
+    pages = document_case.get("pages")
+    if pages:
+        return create_pdf(pages)
+
+    raise ValueError(
+        "Each benchmark document must define either `pages` or `source_pdf`."
+    )
+
+
 def ensure_parent_directory(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -411,7 +425,7 @@ def main() -> int:
                     files={
                         "file": (
                             document_case["filename"],
-                            create_pdf(document_case["pages"]),
+                            load_benchmark_document_bytes(document_case),
                             "application/pdf",
                         )
                     },

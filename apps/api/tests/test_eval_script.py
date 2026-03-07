@@ -195,6 +195,43 @@ def test_page_expectation_hit_supports_any_and_all_matching() -> None:
         )
         is True
     )
+
+
+def test_load_benchmark_document_bytes_prefers_source_pdf(tmp_path: Path) -> None:
+    run_eval = load_run_eval_module()
+    pdf_path = tmp_path / "fixture.pdf"
+    payload = run_eval.create_pdf(["One page of content."])
+    pdf_path.write_bytes(payload)
+
+    loaded = run_eval.load_benchmark_document_bytes(
+        {
+            "filename": "fixture.pdf",
+            "source_pdf": str(pdf_path),
+            "pages": ["This should be ignored."],
+        }
+    )
+
+    assert loaded == payload
+
+
+def test_load_benchmark_document_bytes_falls_back_to_inline_pages() -> None:
+    run_eval = load_run_eval_module()
+
+    loaded = run_eval.load_benchmark_document_bytes(
+        {
+            "filename": "fixture.pdf",
+            "pages": ["Alpha page", "Beta page"],
+        }
+    )
+
+    assert loaded.startswith(b"%PDF")
+
+
+def test_load_benchmark_document_bytes_requires_source() -> None:
+    run_eval = load_run_eval_module()
+
+    with pytest.raises(ValueError):
+        run_eval.load_benchmark_document_bytes({"filename": "fixture.pdf"})
     assert (
         run_eval.page_expectation_hit(
             expected_pages={2, 3},
