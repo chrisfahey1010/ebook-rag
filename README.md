@@ -171,7 +171,7 @@ Run the default retrieval and citation benchmark from [`apps/api`](/home/chris/r
 uv run python scripts/run_eval.py
 ```
 
-This now uses [`curated_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/curated_eval.json) by default to upload a broader curated set of local PDFs, ask benchmark questions, and print retrieval hit rate, citation hit rate, support accuracy, answer match rate, unsupported precision, and latency metrics. Individual questions can also declare `citation_match_mode` so stricter page-coverage expectations can be added over time. The older [`sample_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/sample_eval.json) fixture is still available if you want a smaller smoke test.
+This now uses [`curated_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/curated_eval.json) by default to upload a broader curated set of local PDFs, ask benchmark questions, and print retrieval hit rate, citation hit rate, citation evidence hit rate, support accuracy, answer match rate, unsupported precision, and latency metrics. Individual questions can also declare `citation_match_mode`, `expected_citation_text_contains`, `citation_text_match_mode`, and `regression_tier` so stricter page-coverage and excerpt-accuracy expectations can be added over time. The older [`sample_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/sample_eval.json) fixture is still available if you want a smaller smoke test.
 
 The eval runner now also supports chunking presets and explicit chunking overrides so chunk-size choices can be benchmarked directly:
 
@@ -201,6 +201,14 @@ For longer-document tuning, the runner also supports benchmarks that point at a 
 ```bash
 uv run python scripts/run_eval.py --benchmark benchmarks/hells_angels_eval.json
 ```
+
+For page-local citation regression coverage, there is also a focused benchmark with sentence-level citation expectations:
+
+```bash
+uv run python scripts/run_eval.py --benchmark benchmarks/citation_granularity_eval.json
+```
+
+That fixture keeps excerpt-accuracy checks in the gating lane, while selected `hells_angels` excerpt checks are marked exploratory so they surface long-form citation drift without blocking every merge. The aggregate citation-evidence metric still appears in reports, but `--fail-on-regression` gates on the explicit regression lane rather than exploratory excerpt misses.
 
 For regression tracking, the benchmark runner can also persist JSON and Markdown artifacts and compare a run against a saved baseline:
 

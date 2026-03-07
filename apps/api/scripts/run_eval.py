@@ -15,9 +15,19 @@ import fitz
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-QUALITY_METRICS = (
+SUMMARY_QUALITY_METRICS = (
     "retrieval_hit_rate",
     "citation_hit_rate",
+    "citation_evidence_hit_rate",
+    "gating_citation_evidence_hit_rate",
+    "support_accuracy",
+    "answer_match_rate",
+    "unsupported_precision",
+)
+REGRESSION_QUALITY_METRICS = (
+    "retrieval_hit_rate",
+    "citation_hit_rate",
+    "gating_citation_evidence_hit_rate",
     "support_accuracy",
     "answer_match_rate",
     "unsupported_precision",
@@ -203,6 +213,28 @@ def page_expectation_hit(
     return bool(actual_pages & expected_pages)
 
 
+def text_expectation_hit(
+    *,
+    expected_texts: list[str],
+    actual_texts: list[str],
+    match_mode: str,
+) -> bool:
+    if not expected_texts:
+        return True
+
+    normalized_actual_texts = [text.casefold() for text in actual_texts if text]
+    if not normalized_actual_texts:
+        return False
+
+    matches = [
+        any(expected_text.casefold() in actual_text for actual_text in normalized_actual_texts)
+        for expected_text in expected_texts
+    ]
+    if match_mode == "all":
+        return all(matches)
+    return any(matches)
+
+
 def percentile(values: list[float], percentile_rank: float) -> float:
     if not values:
         return 0.0
@@ -237,9 +269,13 @@ def build_question_result(
     expected_citation_pages: set[int],
     retrieved_pages: set[int],
     cited_pages: set[int],
+    cited_texts: list[str],
     answer_terms: list[str],
     latency_ms: float,
     citation_match_mode: str,
+    expected_citation_texts: list[str],
+    citation_text_match_mode: str,
+    regression_tier: str,
 ) -> dict[str, Any]:
     retrieval_hit = page_expectation_hit(
         expected_pages=expected_citation_pages,
@@ -251,6 +287,11 @@ def build_question_result(
         actual_pages=cited_pages,
         match_mode=citation_match_mode,
     )
+    citation_text_hit = text_expectation_hit(
+        expected_texts=expected_citation_texts,
+        actual_texts=cited_texts,
+        match_mode=citation_text_match_mode,
+    )
     support_hit = supported == expected_supported
     answer_hit = not answer_terms or any(term in answer.lower() for term in answer_terms)
 
@@ -259,12 +300,17 @@ def build_question_result(
         "question": question,
         "expected_supported": expected_supported,
         "supported": supported,
+        "regression_tier": regression_tier,
         "citation_match_mode": citation_match_mode,
+        "citation_text_match_mode": citation_text_match_mode,
         "expected_citation_pages": sorted(expected_citation_pages),
+        "expected_citation_text_contains": expected_citation_texts,
         "retrieved_pages": sorted(retrieved_pages),
         "cited_pages": sorted(cited_pages),
+        "cited_texts": cited_texts,
         "retrieval_hit": retrieval_hit,
         "citation_hit": citation_hit,
+        "citation_text_hit": citation_text_hit,
         "support_hit": support_hit,
         "answer_hit": answer_hit,
         "latency_ms": latency_ms,
@@ -281,6 +327,14 @@ def summarize_results(
     results: list[dict[str, Any]],
 ) -> dict[str, Any]:
     total_questions = len(results)
+    gating_results = [
+        result for result in results if result.get("regression_tier", "gating") == "gating"
+    ]
+    exploratory_results = [
+        result
+        for result in results
+        if result.get("regression_tier", "gating") == "exploratory"
+    ]
     latencies_ms = [float(result["latency_ms"]) for result in results]
     predicted_unsupported = [result for result in results if not result["supported"]]
     unsupported_true_positives = [
@@ -299,8 +353,15 @@ def summarize_results(
         "top_k": top_k,
         "chunking_config": chunking_config,
         "questions": total_questions,
+        "gating_questions": len(gating_results),
+        "exploratory_questions": len(exploratory_results),
         "retrieval_hit_rate": rate(results, "retrieval_hit"),
         "citation_hit_rate": rate(results, "citation_hit"),
+        "citation_evidence_hit_rate": rate(results, "citation_text_hit"),
+        "gating_citation_evidence_hit_rate": rate_or_none(
+            gating_results,
+            "citation_text_hit",
+        ),
         "support_accuracy": rate(results, "support_hit"),
         "answer_match_rate": rate(results, "answer_hit"),
         "unsupported_precision": unsupported_precision,
@@ -344,6 +405,12 @@ def rate(results: list[dict[str, Any]], field_name: str) -> float:
     return sum(1 for result in results if result[field_name]) / len(results)
 
 
+def rate_or_none(results: list[dict[str, Any]], field_name: str) -> float | None:
+    if not results:
+        return None
+    return rate(results, field_name)
+
+
 def compare_summaries(
     current_summary: dict[str, Any],
     baseline_summary: dict[str, Any],
@@ -351,12 +418,13 @@ def compare_summaries(
     metric_deltas: dict[str, dict[str, float | bool | None]] = {}
     regressions: list[str] = []
 
-    for metric_name in QUALITY_METRICS:
+    for metric_name in SUMMARY_QUALITY_METRICS:
         current_value = current_summary.get(metric_name)
         baseline_value = baseline_summary.get(metric_name)
         delta = metric_delta(current_value, baseline_value)
         regressed = (
-            delta is not None
+            metric_name in REGRESSION_QUALITY_METRICS
+            and delta is not None
             and baseline_value is not None
             and current_value is not None
             and delta < 0
@@ -413,11 +481,20 @@ def render_markdown_report(summary: dict[str, Any]) -> str:
         f"- Top-k: `{summary['top_k']}`",
         f"- Chunking config: `{json.dumps(summary['chunking_config'], sort_keys=True)}`",
         f"- Questions: `{summary['questions']}`",
+        f"- Gating questions: `{summary['gating_questions']}`",
+        f"- Exploratory questions: `{summary['exploratory_questions']}`",
         "",
         "## Metrics",
         "",
         f"- Retrieval hit rate: `{format_metric(summary['retrieval_hit_rate'])}`",
         f"- Citation hit rate: `{format_metric(summary['citation_hit_rate'])}`",
+        f"- Citation evidence hit rate: `{format_metric(summary['citation_evidence_hit_rate'])}`",
+        (
+            "- Gating citation evidence hit rate: "
+            f"`{format_metric(summary['gating_citation_evidence_hit_rate'])}`"
+            if summary["gating_citation_evidence_hit_rate"] is not None
+            else "- Gating citation evidence hit rate: `n/a`"
+        ),
         f"- Support accuracy: `{format_metric(summary['support_accuracy'])}`",
         f"- Answer match rate: `{format_metric(summary['answer_match_rate'])}`",
         (
@@ -451,24 +528,53 @@ def render_markdown_report(summary: dict[str, Any]) -> str:
                 f"- {metric_name}: `{format_signed_metric(delta, metric_name in LATENCY_METRICS)}`"
             )
 
-    failing_results = [
+    gating_failures = [
         result
         for result in summary["results"]
         if not (
             result["retrieval_hit"]
             and result["citation_hit"]
+            and result["citation_text_hit"]
             and result["support_hit"]
             and result["answer_hit"]
         )
+        and result.get("regression_tier", "gating") == "gating"
     ]
-    if failing_results:
-        lines.extend(["", "## Failures", ""])
-        for result in failing_results:
+    exploratory_failures = [
+        result
+        for result in summary["results"]
+        if not (
+            result["retrieval_hit"]
+            and result["citation_hit"]
+            and result["citation_text_hit"]
+            and result["support_hit"]
+            and result["answer_hit"]
+        )
+        and result.get("regression_tier", "gating") == "exploratory"
+    ]
+    if gating_failures:
+        lines.extend(["", "## Gating Failures", ""])
+        for result in gating_failures:
             lines.append(
                 "- "
                 + f"{result['document']} :: {result['question']} "
                 + f"(retrieval={result['retrieval_hit']}, citation={result['citation_hit']}, "
-                + f"support={result['support_hit']}, answer={result['answer_hit']}, "
+                + f"citation_text={result['citation_text_hit']}, support={result['support_hit']}, "
+                + f"answer={result['answer_hit']}, "
+                + f"expected_citation_text={result['expected_citation_text_contains']}, "
+                + f"latency_ms={result['latency_ms']:.2f})"
+            )
+
+    if exploratory_failures:
+        lines.extend(["", "## Exploratory Failures", ""])
+        for result in exploratory_failures:
+            lines.append(
+                "- "
+                + f"{result['document']} :: {result['question']} "
+                + f"(retrieval={result['retrieval_hit']}, citation={result['citation_hit']}, "
+                + f"citation_text={result['citation_text_hit']}, support={result['support_hit']}, "
+                + f"answer={result['answer_hit']}, "
+                + f"expected_citation_text={result['expected_citation_text_contains']}, "
                 + f"latency_ms={result['latency_ms']:.2f})"
             )
 
@@ -490,7 +596,9 @@ def format_signed_metric(delta: float, latency_metric: bool) -> str:
 def recommend_chunking_preset(summaries: dict[str, dict[str, Any]]) -> str:
     def ranking_key(item: tuple[str, dict[str, Any]]) -> tuple[float, ...]:
         _, summary = item
-        quality_values = tuple(float(summary[metric]) for metric in QUALITY_METRICS)
+        quality_values = tuple(
+            float(summary[metric]) for metric in REGRESSION_QUALITY_METRICS
+        )
         latency_values = (
             -float(summary["average_latency_ms"]),
             -float(summary["latency_p95_ms"]),
@@ -526,6 +634,13 @@ def render_preset_comparison_report(comparison: dict[str, Any]) -> str:
                 f"- Chunking config: `{json.dumps(summary['chunking_config'], sort_keys=True)}`",
                 f"- Retrieval hit rate: `{format_metric(summary['retrieval_hit_rate'])}`",
                 f"- Citation hit rate: `{format_metric(summary['citation_hit_rate'])}`",
+                f"- Citation evidence hit rate: `{format_metric(summary['citation_evidence_hit_rate'])}`",
+                (
+                    "- Gating citation evidence hit rate: "
+                    f"`{format_metric(summary['gating_citation_evidence_hit_rate'])}`"
+                    if summary["gating_citation_evidence_hit_rate"] is not None
+                    else "- Gating citation evidence hit rate: `n/a`"
+                ),
                 f"- Support accuracy: `{format_metric(summary['support_accuracy'])}`",
                 f"- Answer match rate: `{format_metric(summary['answer_match_rate'])}`",
                 (
@@ -644,10 +759,24 @@ def run_benchmark(
                             for citation in payload["citations"]
                         ]
                     )
+                    cited_texts = [
+                        str(citation.get("text", "")).strip()
+                        for citation in payload["citations"]
+                        if str(citation.get("text", "")).strip()
+                    ]
                     answer_terms = [
                         term.lower()
                         for term in question_case.get("expected_answer_contains", [])
                     ]
+                    expected_citation_texts = [
+                        str(term).strip()
+                        for term in question_case.get("expected_citation_text_contains", [])
+                        if str(term).strip()
+                    ]
+                    citation_text_match_mode = question_case.get(
+                        "citation_text_match_mode",
+                        "all" if len(expected_citation_texts) > 1 else "any",
+                    )
                     results.append(
                         build_question_result(
                             document_name=document_case["filename"],
@@ -658,11 +787,18 @@ def run_benchmark(
                             expected_citation_pages=expected_pages,
                             retrieved_pages=retrieved_pages,
                             cited_pages=cited_pages,
+                            cited_texts=cited_texts,
                             answer_terms=answer_terms,
                             latency_ms=float(trace["timings"]["total_ms"]),
                             citation_match_mode=question_case.get(
                                 "citation_match_mode",
                                 "any",
+                            ),
+                            expected_citation_texts=expected_citation_texts,
+                            citation_text_match_mode=citation_text_match_mode,
+                            regression_tier=question_case.get(
+                                "regression_tier",
+                                "gating",
                             ),
                         )
                     )

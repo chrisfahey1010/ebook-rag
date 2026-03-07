@@ -24,11 +24,17 @@ def test_summarize_results_includes_percentiles_and_unsupported_precision() -> N
             "question": "What happens before launch?",
             "expected_supported": True,
             "supported": True,
+            "regression_tier": "gating",
+            "citation_match_mode": "any",
+            "citation_text_match_mode": "any",
             "expected_citation_pages": [1],
+            "expected_citation_text_contains": ["cooling lines"],
             "retrieved_pages": [1],
             "cited_pages": [1],
+            "cited_texts": ["Inspect the cooling lines before launch."],
             "retrieval_hit": True,
             "citation_hit": True,
+            "citation_text_hit": True,
             "support_hit": True,
             "answer_hit": True,
             "latency_ms": 10.0,
@@ -39,11 +45,17 @@ def test_summarize_results_includes_percentiles_and_unsupported_precision() -> N
             "question": "What does it say about whales?",
             "expected_supported": False,
             "supported": False,
+            "regression_tier": "gating",
+            "citation_match_mode": "any",
+            "citation_text_match_mode": "any",
             "expected_citation_pages": [],
+            "expected_citation_text_contains": [],
             "retrieved_pages": [],
             "cited_pages": [],
+            "cited_texts": [],
             "retrieval_hit": True,
             "citation_hit": True,
+            "citation_text_hit": True,
             "support_hit": True,
             "answer_hit": True,
             "latency_ms": 30.0,
@@ -54,11 +66,17 @@ def test_summarize_results_includes_percentiles_and_unsupported_precision() -> N
             "question": "What happens after landing?",
             "expected_supported": True,
             "supported": False,
+            "regression_tier": "exploratory",
+            "citation_match_mode": "any",
+            "citation_text_match_mode": "any",
             "expected_citation_pages": [2],
+            "expected_citation_text_contains": ["inspect the seals"],
             "retrieved_pages": [1],
             "cited_pages": [],
+            "cited_texts": [],
             "retrieval_hit": False,
             "citation_hit": False,
+            "citation_text_hit": False,
             "support_hit": False,
             "answer_hit": False,
             "latency_ms": 50.0,
@@ -75,9 +93,13 @@ def test_summarize_results_includes_percentiles_and_unsupported_precision() -> N
     )
 
     assert summary["questions"] == 3
+    assert summary["gating_questions"] == 2
+    assert summary["exploratory_questions"] == 1
     assert summary["chunking_config"]["target_words"] == 420
     assert summary["retrieval_hit_rate"] == 2 / 3
     assert summary["citation_hit_rate"] == 2 / 3
+    assert summary["citation_evidence_hit_rate"] == 2 / 3
+    assert summary["gating_citation_evidence_hit_rate"] == 1.0
     assert summary["support_accuracy"] == 2 / 3
     assert summary["answer_match_rate"] == 2 / 3
     assert summary["unsupported_precision"] == 0.5
@@ -95,6 +117,8 @@ def test_compare_summaries_flags_quality_and_latency_regressions() -> None:
         "generated_at": "2026-03-07T00:00:00+00:00",
         "retrieval_hit_rate": 0.6,
         "citation_hit_rate": 0.7,
+        "citation_evidence_hit_rate": 0.75,
+        "gating_citation_evidence_hit_rate": 0.8,
         "support_accuracy": 0.9,
         "answer_match_rate": 0.8,
         "unsupported_precision": 0.4,
@@ -107,6 +131,8 @@ def test_compare_summaries_flags_quality_and_latency_regressions() -> None:
         "generated_at": "2026-03-06T00:00:00+00:00",
         "retrieval_hit_rate": 0.8,
         "citation_hit_rate": 0.7,
+        "citation_evidence_hit_rate": 0.9,
+        "gating_citation_evidence_hit_rate": 0.9,
         "support_accuracy": 0.95,
         "answer_match_rate": 0.75,
         "unsupported_precision": 0.6,
@@ -119,11 +145,13 @@ def test_compare_summaries_flags_quality_and_latency_regressions() -> None:
 
     assert comparison["has_regressions"] is True
     assert "retrieval_hit_rate" in comparison["regressions"]
+    assert "gating_citation_evidence_hit_rate" in comparison["regressions"]
     assert "support_accuracy" in comparison["regressions"]
     assert "unsupported_precision" in comparison["regressions"]
     assert "average_latency_ms" in comparison["regressions"]
     assert "latency_p95_ms" in comparison["regressions"]
     assert comparison["metrics"]["answer_match_rate"]["regressed"] is False
+    assert comparison["metrics"]["citation_evidence_hit_rate"]["regressed"] is False
     assert comparison["metrics"]["answer_match_rate"]["delta"] == pytest.approx(0.05)
 
 
@@ -141,8 +169,12 @@ def test_render_markdown_report_includes_comparison_and_failures() -> None:
             "max_heading_words": 12,
         },
         "questions": 2,
+        "gating_questions": 1,
+        "exploratory_questions": 1,
         "retrieval_hit_rate": 0.5,
         "citation_hit_rate": 1.0,
+        "citation_evidence_hit_rate": 0.5,
+        "gating_citation_evidence_hit_rate": 1.0,
         "support_accuracy": 0.5,
         "answer_match_rate": 0.5,
         "unsupported_precision": 1.0,
@@ -157,6 +189,9 @@ def test_render_markdown_report_includes_comparison_and_failures() -> None:
                 "retrieval_hit_rate": {
                     "delta": -0.25,
                 },
+                "citation_evidence_hit_rate": {
+                    "delta": -0.5,
+                },
                 "latency_p95_ms": {
                     "delta": 8.0,
                 },
@@ -166,10 +201,13 @@ def test_render_markdown_report_includes_comparison_and_failures() -> None:
             {
                 "document": "manual.pdf",
                 "question": "What happens before launch?",
+                "regression_tier": "exploratory",
                 "retrieval_hit": False,
                 "citation_hit": True,
+                "citation_text_hit": False,
                 "support_hit": False,
                 "answer_hit": False,
+                "expected_citation_text_contains": ["cooling lines"],
                 "latency_ms": 28.0,
             }
         ],
@@ -181,8 +219,10 @@ def test_render_markdown_report_includes_comparison_and_failures() -> None:
     assert '"target_words": 420' in report
     assert "Regressions detected: `yes`" in report
     assert "retrieval_hit_rate: `-0.250`" in report
+    assert "citation_evidence_hit_rate: `-0.500`" in report
     assert "latency_p95_ms: `+8.000 ms`" in report
     assert "manual.pdf :: What happens before launch?" in report
+    assert "citation_text=False" in report
     assert "answer=False" in report
 
 
@@ -203,6 +243,38 @@ def test_page_expectation_hit_supports_any_and_all_matching() -> None:
             match_mode="any",
         )
         is True
+    )
+
+
+def test_text_expectation_hit_supports_any_and_all_matching() -> None:
+    run_eval = load_run_eval_module()
+
+    assert (
+        run_eval.text_expectation_hit(
+            expected_texts=["cooling lines", "launch clock"],
+            actual_texts=["Inspect the cooling lines before launch."],
+            match_mode="any",
+        )
+        is True
+    )
+    assert (
+        run_eval.text_expectation_hit(
+            expected_texts=["cooling lines", "launch clock"],
+            actual_texts=[
+                "Inspect the cooling lines before launch.",
+                "Synchronize the launch clock.",
+            ],
+            match_mode="all",
+        )
+        is True
+    )
+    assert (
+        run_eval.text_expectation_hit(
+            expected_texts=["cooling lines", "launch clock"],
+            actual_texts=["Inspect the cooling lines before launch."],
+            match_mode="all",
+        )
+        is False
     )
 
 
@@ -307,6 +379,8 @@ def test_recommend_chunking_preset_prefers_quality_then_latency() -> None:
             "small": {
                 "retrieval_hit_rate": 1.0,
                 "citation_hit_rate": 1.0,
+                "citation_evidence_hit_rate": 1.0,
+                "gating_citation_evidence_hit_rate": 1.0,
                 "support_accuracy": 1.0,
                 "answer_match_rate": 1.0,
                 "unsupported_precision": 1.0,
@@ -316,6 +390,8 @@ def test_recommend_chunking_preset_prefers_quality_then_latency() -> None:
             "default": {
                 "retrieval_hit_rate": 1.0,
                 "citation_hit_rate": 1.0,
+                "citation_evidence_hit_rate": 1.0,
+                "gating_citation_evidence_hit_rate": 1.0,
                 "support_accuracy": 1.0,
                 "answer_match_rate": 1.0,
                 "unsupported_precision": 1.0,
@@ -325,6 +401,8 @@ def test_recommend_chunking_preset_prefers_quality_then_latency() -> None:
             "large": {
                 "retrieval_hit_rate": 0.9,
                 "citation_hit_rate": 1.0,
+                "citation_evidence_hit_rate": 0.9,
+                "gating_citation_evidence_hit_rate": 0.9,
                 "support_accuracy": 1.0,
                 "answer_match_rate": 1.0,
                 "unsupported_precision": 1.0,
@@ -363,6 +441,8 @@ def test_render_preset_comparison_report_includes_recommendation() -> None:
                     },
                     "retrieval_hit_rate": 1.0,
                     "citation_hit_rate": 0.9,
+                    "citation_evidence_hit_rate": 0.9,
+                    "gating_citation_evidence_hit_rate": 0.9,
                     "support_accuracy": 0.9,
                     "answer_match_rate": 0.9,
                     "unsupported_precision": 1.0,

@@ -1,0 +1,53 @@
+{
+  "name": "citation-granularity-eval",
+  "documents": [
+    {
+      "filename": "field-operations-granularity.pdf",
+      "pages": [
+        "Field operations\n\nBefore departure, calibrate the mast compass beside the orange marker stake. Record the battery cycle count on the departure card before closing the hatch. After the first ridge crossing, inspect the left wheel for chipped tread and trapped grit before plotting the next route.",
+        "Archive handling\n\nStore the spare batteries in the dry locker below the navigation desk. Keep the spare charger wrapped in cloth away from the rinse buckets. Do not stage the battery packs beside the wash station after muddy returns.",
+        "Sampling notes\n\nLabel each sample bag before boarding the skiff. Verify the radio battery is charged before untying the bow line. Pack spare tags in the dry pouch clipped inside the stern locker."
+      ],
+      "questions": [
+        {
+          "question": "What should be recorded before closing the hatch?",
+          "expected_supported": true,
+          "expected_answer_contains": ["battery cycle count"],
+          "expected_citation_pages": [1],
+          "expected_citation_text_contains": ["record the battery cycle count on the departure card"],
+          "citation_text_match_mode": "all"
+        },
+        {
+          "question": "Where should the spare batteries be stored?",
+          "expected_supported": true,
+          "expected_answer_contains": ["dry locker"],
+          "expected_citation_pages": [2],
+          "expected_citation_text_contains": ["store the spare batteries in the dry locker"],
+          "citation_text_match_mode": "all"
+        },
+        {
+          "question": "What should be verified before untying the bow line?",
+          "expected_supported": true,
+          "expected_answer_contains": ["radio battery is charged"],
+          "expected_citation_pages": [3],
+          "expected_citation_text_contains": ["verify the radio battery is charged"],
+          "citation_text_match_mode": "all"
+        },
+        {
+          "question": "What should happen before departure and after the first ridge crossing?",
+          "expected_supported": true,
+          "expected_answer_contains": ["calibrate the mast compass", "inspect the left wheel"],
+          "expected_citation_pages": [1],
+          "citation_match_mode": "all",
+          "expected_citation_text_contains": ["calibrate the mast compass", "inspect the left wheel"],
+          "citation_text_match_mode": "all"
+        },
+        {
+          "question": "What does the guide say about coral bleaching events?",
+          "expected_supported": false,
+          "expected_citation_pages": []
+        }
+      ]
+    }
+  ]
+}

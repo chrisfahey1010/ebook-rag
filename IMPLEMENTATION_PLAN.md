@@ -266,11 +266,14 @@ This project should be able to prove quality improvements, not just demonstrate 
   - expanded curated eval set with harder multi-page and citation-coverage cases
   - benchmark runner can now evaluate either inline synthetic PDFs or real local PDFs via `source_pdf`
   - added a dedicated long-form benchmark against `hells_angels.pdf`
+  - added a focused citation-granularity benchmark with excerpt-level expectations
+  - split benchmark citation-granularity checks into gating versus exploratory tiers
+  - benchmark summaries now report citation evidence hit rate alongside page-level citation hit rate
   - `GET /api/debug/documents/{document_id}/chunks`
   - `POST /api/debug/rerank`
 - remaining:
   - keep expanding the benchmark dataset toward harder multi-page citation and unsupported-answer cases
-  - decide which long-form benchmark thresholds should become regression-gating versus exploratory-only
+  - keep refining which long-form citation-granularity checks should graduate from exploratory to regression-gating
 - persist or snapshot benchmark results so runs are comparable over time
 - optionally add a simple benchmark report artifact in JSON or Markdown
 
@@ -380,14 +383,14 @@ The project should be considered V1 complete when all of the following are true:
 
 The best next coding slice is now:
 
-1. close the remaining Milestone 1/7 documentation gap
-   - expand the example `.env` guidance into explicit Ollama and llama.cpp-style presets
-   - document recommended local embedding, reranker, and generation model combinations
-2. broaden the benchmark set before more retrieval tuning
-   - add harder multi-page citation and unsupported-answer cases
-   - add more real-document fixtures so chunking and retrieval decisions are not overfit to the current synthetic-heavy set
-3. convert the new page-local citation inspector into regression coverage
-   - add eval cases that distinguish right-page versus wrong-sentence citation failures
-   - decide which citation-granularity failures should be regression-gating versus exploratory-only
+1. broaden the benchmark set further with more real-document fixtures
+   - add harder multi-page citation and unsupported-answer cases beyond the current curated and `hells_angels` coverage
+   - reduce dependence on synthetic fixtures when judging chunking or retrieval changes
+2. promote selected exploratory citation-granularity checks into the gating lane
+   - use the new excerpt-level benchmark coverage to identify stable long-form checks
+   - only gate on cases that are repeatable enough to avoid noisy regressions
+3. close the remaining Milestone 1/7 documentation gap
+   - document recommended local embedding, reranker, and generation model combinations more explicitly
+   - keep fully local, mixed, and hosted OpenAI-compatible setups easy to discover from the docs
 
-The chunking decision itself is now benchmark-backed for the current fixture set, normalization now preserves heading blocks while collapsing soft-wrapped body lines more cleanly, chunk provenance now includes character-span offsets for page-local inspection, and the web debug workspace now surfaces those offsets for direct source verification. The next step should therefore focus on the remaining documentation gap and broader eval coverage, while using the richer provenance to decide whether another retrieval or citation-selection change is justified.
+The chunking decision itself is now benchmark-backed for the current fixture set, normalization now preserves heading blocks while collapsing soft-wrapped body lines more cleanly, chunk provenance now includes character-span offsets for page-local inspection, and the benchmark workflow now distinguishes page-level citation success from excerpt-level citation accuracy. The next step should therefore focus on broader real-document eval coverage and graduating stable excerpt-level checks into the regression lane, while using the richer provenance to decide whether another retrieval or citation-selection change is justified.

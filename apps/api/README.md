@@ -52,7 +52,24 @@ uv run python scripts/run_eval.py \
   --fail-on-regression
 ```
 
-The benchmark summary includes retrieval hit rate, citation hit rate, support accuracy, answer match rate, unsupported precision, and average/P50/P95 latency.
+The benchmark summary includes retrieval hit rate, citation hit rate, citation evidence hit rate, support accuracy, answer match rate, unsupported precision, and average/P50/P95 latency.
+
+Questions can also declare:
+
+- `expected_citation_text_contains` to assert that the returned citation excerpt contains the expected supporting sentence or phrase
+- `citation_text_match_mode` (`any` or `all`) to control how multiple excerpt expectations are scored
+- `regression_tier` (`gating` or `exploratory`) so harder long-form citation checks can be tracked without blocking every merge
+
+`--fail-on-regression` only gates on the regression lane. Exploratory excerpt checks still appear in the report, but they do not trigger a non-zero exit code on their own.
+
+To run the focused page-local citation benchmark:
+
+```bash
+uv run python scripts/run_eval.py \
+  --benchmark benchmarks/citation_granularity_eval.json \
+  --output-json benchmarks/results/citation_granularity_latest.json \
+  --output-markdown benchmarks/results/citation_granularity_latest.md
+```
 
 To compare the built-in chunking presets and emit a recommendation report:
 

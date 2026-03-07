@@ -9,13 +9,17 @@
           "question": "Who asked Hunter S. Thompson to write the original article on motorcycle gangs?",
           "expected_supported": true,
           "expected_answer_contains": ["carey mcwilliams"],
-          "expected_citation_pages": [2]
+          "expected_citation_pages": [2],
+          "expected_citation_text_contains": ["Carey McWilliams"],
+          "regression_tier": "exploratory"
         },
         {
           "question": "When did the original article appear in The Nation?",
           "expected_supported": true,
           "expected_answer_contains": ["april 1965"],
-          "expected_citation_pages": [2]
+          "expected_citation_pages": [2],
+          "expected_citation_text_contains": ["April 17, 1965"],
+          "regression_tier": "exploratory"
         },
         {
           "question": "Where were the outlaw motorcyclists heading at the start of the book?",
@@ -39,7 +43,9 @@
           "question": "What nickname does Rodger use for himself?",
           "expected_supported": true,
           "expected_answer_contains": ["rodger the lodger"],
-          "expected_citation_pages": [100]
+          "expected_citation_pages": [100],
+          "expected_citation_text_contains": ["Rodger the Lodger"],
+          "regression_tier": "exploratory"
         },
         {
           "question": "Which drug does Thompson say was plentiful and then legal at the parties?",
