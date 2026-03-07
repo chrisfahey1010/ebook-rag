@@ -25,10 +25,12 @@ The project has already cleared the first end-to-end milestone:
 
 The main gap is that several critical pieces are still baseline implementations:
 
-- embeddings use a local hashing provider rather than a real model
-- reranking uses token overlap rather than a model-backed reranker
+- the provider layer is only partially complete:
+  - embeddings now support hashing, `sentence-transformers`, and OpenAI-compatible endpoints
+  - reranking now supports token overlap, local cross-encoders, and an OpenAI-compatible adapter
+  - answer generation still needs clearer local-runtime presets and documentation
 - context assembly is currently pass-through
-- local-model support is mostly "OpenAI-compatible endpoint" support, not a fuller provider layer
+- the current vector schema is fixed at 128 dimensions, so larger embedding outputs are adapted into the existing storage shape
 - ingestion is synchronous and lacks reprocessing/status APIs from the spec
 - evaluation exists, but the benchmark set and regression workflow are still minimal
 
@@ -52,7 +54,7 @@ For this project, "small local models viable" means:
 
 ### Milestone 1: Finish the provider abstraction layer
 
-This is the highest-leverage next step because the current system is structurally ready for pluggability, but only partially implemented.
+This milestone is in progress. The embedding and reranker halves are now implemented; the remaining work is to finish the answer-provider side and document concrete local-runtime presets cleanly.
 
 #### Goals
 
@@ -82,6 +84,20 @@ This is the highest-leverage next step because the current system is structurall
   - timeouts
   - dimensions where applicable
 
+#### Status
+
+- completed:
+  - separate provider configuration for embeddings, reranking, and answer generation
+  - `SentenceTransformerEmbeddingProvider`
+  - `OpenAICompatibleEmbeddingProvider`
+  - `CrossEncoderReranker`
+  - `OpenAICompatibleReranker`
+  - provider-selection and failure-handling tests for embeddings and reranking
+- remaining:
+  - document supported local presets for Ollama and llama.cpp-style OpenAI-compatible servers
+  - decide whether the fixed 128-dimension vector schema remains acceptable for V1 or should be migrated before retrieval tuning
+  - expand answer-provider documentation so mixed-mode setups are explicit rather than implied
+
 #### Why this comes first
 
 - retrieval quality work is blocked on real embedding and reranking models
@@ -99,7 +115,7 @@ This is the highest-leverage next step because the current system is structurall
 
 ### Milestone 2: Raise retrieval quality to a real V1 standard
 
-Once the provider layer is in place, retrieval quality should become the main focus.
+Once the remaining provider-layer documentation is in place, retrieval quality should become the main focus.
 
 #### Goals
 

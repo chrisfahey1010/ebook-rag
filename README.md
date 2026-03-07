@@ -90,12 +90,14 @@ Current implementation includes:
 - PDF upload, file registration, and PyMuPDF extraction
 - persisted per-page text and paragraph-aware chunks
 - chunk embeddings generated during ingestion
+- pluggable embedding providers with hashing, local `sentence-transformers`, and OpenAI-compatible adapters
 - document ingestion statuses with chunk metadata
 - document listing and detail endpoints
 - document deletion endpoint that also removes uploaded PDFs
 - PostgreSQL `pgvector` storage for chunk embeddings
 - dense retrieval executed in the database
 - reranking over retrieved candidates before answer context assembly
+- pluggable reranker providers with token-overlap fallback, local cross-encoder support, and an OpenAI-compatible adapter
 - grounded question answering with citations
 - pluggable QA providers, including a local extractive fallback and an OpenAI-compatible adapter
 - retrieval debug route and browser-side candidate inspector
@@ -104,7 +106,9 @@ Current implementation includes:
 
 Current limitations:
 
-- retrieval currently uses a simple local token-overlap reranker; model-backed reranking and lexical blending are still pending
+- context assembly is still a pass-through selection of retrieved chunks
+- lexical/hybrid retrieval is still pending
+- embeddings are currently stored in a fixed 128-dimension schema, so larger model outputs are adapted to fit the current `pgvector` column
 - retrieval quality is now measurable, but benchmark results should be refreshed and compared after additional retrieval improvements
 
 ## API snapshot
@@ -120,9 +124,11 @@ Current limitations:
 
 Upload registers the PDF, computes its SHA-256 checksum, stores the file locally, extracts per-page text with PyMuPDF, builds paragraph-aware chunks with page spans and token estimates, generates embeddings, persists the records, and returns document plus ingestion status metadata.
 
-Retrieval accepts a natural-language query, embeds it, pulls dense candidates, reranks them, and returns ranked matches with document metadata, page spans, dense scores, rerank scores, and final scores.
+Retrieval accepts a natural-language query, embeds it, pulls dense candidates, reranks them, and returns ranked matches with document metadata, page spans, dense scores, rerank scores, and final scores. If a configured reranker backend fails at runtime, retrieval falls back to the local token-overlap reranker so the request still completes.
 
 QA builds on retrieval and returns a grounded answer plus structured citations. The default local answerer is conservative and can decline to answer when the indexed content does not provide enough support. A configurable OpenAI-compatible provider path is also available for model-backed generation.
+
+Provider selection is environment-driven. Embeddings, reranking, and answer generation can now be configured independently for local-only, hosted, or mixed setups.
 
 `POST /api/qa/ask` now accepts `include_trace=true` to expose the selected context window, prompt snapshot, provider name, and timing breakdown used for answer generation.
 
