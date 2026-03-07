@@ -53,3 +53,19 @@ uv run python scripts/run_eval.py \
 ```
 
 The benchmark summary includes retrieval hit rate, citation hit rate, support accuracy, answer match rate, unsupported precision, and average/P50/P95 latency.
+
+To compare the built-in chunking presets and emit a recommendation report:
+
+```bash
+uv run python scripts/run_eval.py \
+  --compare-presets \
+  --output-json benchmarks/results/chunking_curated_20260307.json \
+  --output-markdown benchmarks/results/chunking_curated_20260307.md
+uv run python scripts/run_eval.py \
+  --benchmark benchmarks/hells_angels_eval.json \
+  --compare-presets \
+  --output-json benchmarks/results/chunking_hells_angels_20260307.json \
+  --output-markdown benchmarks/results/chunking_hells_angels_20260307.md
+```
+
+The current default chunking config remains `420 / 180 / 64 / 12`. The curated fixture is effectively a latency tie, but the long-form `hells_angels` comparison recommends the default preset and shows a quality regression for `large`.

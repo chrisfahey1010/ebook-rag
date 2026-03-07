@@ -375,14 +375,14 @@ The project should be considered V1 complete when all of the following are true:
 
 The best next coding slice is now:
 
-1. finish the benchmark-driven chunking decision
-   - run the existing eval fixtures across the new chunking presets
-   - choose and document a default based on retrieval/citation/support metrics rather than intuition
-2. continue Milestone 3 normalization/provenance work
-   - tighten heading preservation and page mapping where extraction still loses structure
+1. continue Milestone 3 provenance work from the new chunking baseline
    - decide whether paragraph/page provenance is enough or whether character-span metadata is worth the cost
-3. close the remaining Milestone 1/7 documentation gap
-   - document supported Ollama and llama.cpp-style OpenAI-compatible presets
-   - add example `.env` settings for chunking plus mixed local/remote provider setups
+   - add that metadata only if it materially improves citation/page-local debugging
+2. close the remaining Milestone 1/7 documentation gap
+   - expand the example `.env` guidance into explicit Ollama and llama.cpp-style presets
+   - document recommended local embedding, reranker, and generation model combinations
+3. broaden the benchmark set before more retrieval tuning
+   - add harder multi-page citation and unsupported-answer cases
+   - add more real-document fixtures so chunking and retrieval decisions are not overfit to the current synthetic-heavy set
 
-That sequence keeps the project out of an open-ended retrieval-tuning loop while still improving the ingestion layer and making the current system easier to inspect and rerun.
+The chunking decision itself is now benchmark-backed for the current fixture set, and normalization now preserves heading blocks while collapsing soft-wrapped body lines more cleanly. The next step should therefore focus on the remaining provenance and documentation gaps, while using broader eval coverage to decide whether another retrieval or chunking change is justified.

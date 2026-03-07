@@ -278,3 +278,103 @@ def test_resolve_chunking_config_applies_preset_and_overrides() -> None:
     assert config["target_words"] == 640
     assert config["min_words"] == 300
     assert config["overlap_words"] == 96
+
+
+def test_validate_args_rejects_compare_presets_with_overrides() -> None:
+    run_eval = load_run_eval_module()
+    namespace = type(
+        "Args",
+        (),
+        {
+            "compare_presets": True,
+            "compare_to": None,
+            "chunk_target_words": 500,
+            "chunk_min_words": None,
+            "chunk_overlap_words": None,
+            "chunk_max_heading_words": None,
+        },
+    )()
+
+    with pytest.raises(ValueError):
+        run_eval.validate_args(namespace)
+
+
+def test_recommend_chunking_preset_prefers_quality_then_latency() -> None:
+    run_eval = load_run_eval_module()
+
+    recommended = run_eval.recommend_chunking_preset(
+        {
+            "small": {
+                "retrieval_hit_rate": 1.0,
+                "citation_hit_rate": 1.0,
+                "support_accuracy": 1.0,
+                "answer_match_rate": 1.0,
+                "unsupported_precision": 1.0,
+                "average_latency_ms": 120.0,
+                "latency_p95_ms": 180.0,
+            },
+            "default": {
+                "retrieval_hit_rate": 1.0,
+                "citation_hit_rate": 1.0,
+                "support_accuracy": 1.0,
+                "answer_match_rate": 1.0,
+                "unsupported_precision": 1.0,
+                "average_latency_ms": 100.0,
+                "latency_p95_ms": 170.0,
+            },
+            "large": {
+                "retrieval_hit_rate": 0.9,
+                "citation_hit_rate": 1.0,
+                "support_accuracy": 1.0,
+                "answer_match_rate": 1.0,
+                "unsupported_precision": 1.0,
+                "average_latency_ms": 90.0,
+                "latency_p95_ms": 140.0,
+            },
+        }
+    )
+
+    assert recommended == "default"
+
+
+def test_render_preset_comparison_report_includes_recommendation() -> None:
+    run_eval = load_run_eval_module()
+    report = run_eval.render_preset_comparison_report(
+        {
+            "benchmark": "curated-eval",
+            "benchmark_path": "/tmp/curated.json",
+            "generated_at": "2026-03-07T00:00:00+00:00",
+            "top_k": 5,
+            "recommended_preset": "default",
+            "recommended_chunking_config": {
+                "target_words": 420,
+                "min_words": 180,
+                "overlap_words": 64,
+                "max_heading_words": 12,
+            },
+            "decision_basis": "quality first, latency second",
+            "preset_summaries": {
+                "default": {
+                    "chunking_config": {
+                        "target_words": 420,
+                        "min_words": 180,
+                        "overlap_words": 64,
+                        "max_heading_words": 12,
+                    },
+                    "retrieval_hit_rate": 1.0,
+                    "citation_hit_rate": 0.9,
+                    "support_accuracy": 0.9,
+                    "answer_match_rate": 0.9,
+                    "unsupported_precision": 1.0,
+                    "average_latency_ms": 100.0,
+                    "latency_p50_ms": 90.0,
+                    "latency_p95_ms": 140.0,
+                }
+            },
+        }
+    )
+
+    assert "# Chunking Preset Comparison: curated-eval" in report
+    assert "Recommended preset: `default`" in report
+    assert '"target_words": 420' in report
+    assert "Average latency: `100.00 ms`" in report

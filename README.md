@@ -126,7 +126,7 @@ Current implementation includes:
 Current limitations:
 
 - PostgreSQL vector storage now follows the configured embedding dimension, but changing dimensions requires running migrations and reprocessing existing documents
-- chunk sizing is now configurable and benchmarkable, but the default values are still heuristic and not yet locked by a benchmark-backed decision
+- chunk sizing is now benchmark-backed for the current fixture set, but the benchmark still needs broader real-document coverage before the defaults should be treated as final
 - context assembly is still heuristic even though answer traces now separate selected context from cited evidence
 - the long-document benchmark now has better unsupported-answer rejection, less metadata/front-matter confusion, and stronger date-specific citation tie-breaking, but it still misses some exact-page citation targets and page-local fact questions on long books
 - nickname-specific and some page-local/date-specific questions in the long-document benchmark can still retrieve the right neighborhood but choose the wrong sentence or citation page
@@ -147,7 +147,7 @@ Current limitations:
 - `GET /api/debug/documents/{document_id}/chunks`
 - `POST /api/debug/rerank`
 
-Upload registers the PDF, computes its SHA-256 checksum, stores the file locally, extracts per-page text with PyMuPDF, removes repeated boundary noise such as headers, footers, and standalone page numbers when detectable, builds larger paragraph-aware chunks with page spans, token estimates, and heading metadata, generates embeddings, persists the records, and returns document plus ingestion status metadata.
+Upload registers the PDF, computes its SHA-256 checksum, stores the file locally, extracts per-page text with PyMuPDF, removes repeated boundary noise such as headers, footers, and standalone page numbers when detectable, collapses soft-wrapped body lines while preserving short heading blocks, builds larger paragraph-aware chunks with page spans, token estimates, and heading metadata, generates embeddings, persists the records, and returns document plus ingestion status metadata.
 
 Reprocessing reruns extraction and embedding generation for an existing document, which is useful after changing embedding models, embedding dimensions, or chunking settings. Each indexed document now persists the chunking configuration that was used, and debug chunk inspection also includes page/paragraph provenance metadata so reprocessing decisions are easier to reason about.
 
@@ -178,6 +178,22 @@ uv run python scripts/run_eval.py --chunk-preset large
 uv run python scripts/run_eval.py --chunk-target-words 560 --chunk-min-words 220 --chunk-overlap-words 80
 ```
 
+To compare the built-in chunking presets directly and emit a recommendation artifact:
+
+```bash
+uv run python scripts/run_eval.py \
+  --compare-presets \
+  --output-json benchmarks/results/chunking_curated_20260307.json \
+  --output-markdown benchmarks/results/chunking_curated_20260307.md
+uv run python scripts/run_eval.py \
+  --benchmark benchmarks/hells_angels_eval.json \
+  --compare-presets \
+  --output-json benchmarks/results/chunking_hells_angels_20260307.json \
+  --output-markdown benchmarks/results/chunking_hells_angels_20260307.md
+```
+
+On the current fixtures, the curated benchmark is effectively a latency tie and slightly favors the large preset, while the long-form `hells_angels` benchmark clearly rejects `large` and recommends the current default config (`target_words=420`, `min_words=180`, `overlap_words=64`, `max_heading_words=12`). Persist those comparison artifacts locally under `apps/api/benchmarks/results/` when you rerun the commands above.
+
 For longer-document tuning, the runner also supports benchmarks that point at a real local PDF via `source_pdf`. The repo now includes [`hells_angels_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/hells_angels_eval.json), which exercises selected questions against the full 186-page [`hells_angels.pdf`](/home/chris/repos/ebook-rag/apps/api/benchmarks/local/hells_angels.pdf):
 
 ```bash
@@ -204,6 +220,13 @@ Chunking can now be configured through environment variables before ingestion or
 - `CHUNK_MIN_WORDS`
 - `CHUNK_OVERLAP_WORDS`
 - `CHUNK_MAX_HEADING_WORDS`
+
+The current benchmark-backed default is:
+
+- `CHUNK_TARGET_WORDS=420`
+- `CHUNK_MIN_WORDS=180`
+- `CHUNK_OVERLAP_WORDS=64`
+- `CHUNK_MAX_HEADING_WORDS=12`
 
 The active values are persisted on each document and surfaced in the web UI plus debug routes so you can tell how an existing index was built before deciding to reprocess it.
 

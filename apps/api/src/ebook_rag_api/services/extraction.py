@@ -8,7 +8,11 @@ from sqlalchemy.orm import Session
 from ebook_rag_api.models import Document, DocumentPage, IngestionJob
 from ebook_rag_api.core.config import get_settings
 from ebook_rag_api.services.embeddings import get_embedding_provider
-from ebook_rag_api.services.chunking import ChunkingConfig, build_document_chunks
+from ebook_rag_api.services.chunking import (
+    ChunkingConfig,
+    build_document_chunks,
+    is_heading_block,
+)
 
 WHITESPACE_RE = re.compile(r"[ \t]+")
 BLANK_LINE_RE = re.compile(r"\n{3,}")
@@ -21,14 +25,14 @@ def _normalize_line(line: str) -> str:
     return WHITESPACE_RE.sub(" ", line).strip()
 
 
-def normalize_page_text(raw_text: str) -> str:
+def normalize_page_text(raw_text: str, *, max_heading_words: int = 12) -> str:
     lines = [_normalize_line(line) for line in raw_text.splitlines()]
-    normalized = "\n".join(line if line else "" for line in lines)
-    normalized = BLANK_LINE_RE.sub("\n\n", normalized).strip()
-    return normalized
+    return _normalize_page_lines(lines, max_heading_words=max_heading_words)
 
 
-def normalize_document_pages(raw_pages: list[str]) -> list[str]:
+def normalize_document_pages(
+    raw_pages: list[str], *, max_heading_words: int = 12
+) -> list[str]:
     normalized_lines_by_page = [
         [_normalize_line(line) for line in raw_text.splitlines()]
         for raw_text in raw_pages
@@ -49,10 +53,45 @@ def normalize_document_pages(raw_pages: list[str]) -> list[str]:
             repeated_header_signatures=repeated_header_signatures,
             repeated_footer_signatures=repeated_footer_signatures,
         )
-        normalized = "\n".join(line if line else "" for line in cleaned_lines)
-        normalized = BLANK_LINE_RE.sub("\n\n", normalized).strip()
-        normalized_pages.append(normalized)
+        normalized_pages.append(
+            _normalize_page_lines(
+                cleaned_lines,
+                max_heading_words=max_heading_words,
+            )
+        )
     return normalized_pages
+
+
+def _normalize_page_lines(lines: list[str], *, max_heading_words: int) -> str:
+    paragraphs: list[str] = []
+    current_lines: list[str] = []
+
+    def flush_current() -> None:
+        if not current_lines:
+            return
+        paragraphs.append(" ".join(current_lines))
+        current_lines.clear()
+
+    for line in lines:
+        if not line:
+            flush_current()
+            continue
+
+        if _is_heading_line(line, max_heading_words=max_heading_words):
+            flush_current()
+            paragraphs.append(line)
+            continue
+
+        current_lines.append(line)
+
+    flush_current()
+    normalized = "\n\n".join(paragraphs)
+    normalized = BLANK_LINE_RE.sub("\n\n", normalized).strip()
+    return normalized
+
+
+def _is_heading_line(line: str, *, max_heading_words: int) -> bool:
+    return is_heading_block(line, max_heading_words=max_heading_words)
 
 
 def _find_repeated_boundary_signatures(
@@ -143,6 +182,10 @@ def _boundary_signature(line: str) -> str | None:
     word_count = len(collapsed.split())
     if word_count > 12:
         return None
+    if collapsed[:1].islower():
+        return None
+    if collapsed.endswith((".", "!", "?")) and word_count >= 5:
+        return None
 
     lowered = re.sub(r"\d+", "#", collapsed.lower())
     lowered = NON_ALNUM_RE.sub(" ", lowered)
@@ -160,10 +203,14 @@ def _is_page_number_line(line: str) -> bool:
 
 def extract_document_pages(file_path: Path) -> tuple[int, list[DocumentPage]]:
     pages: list[DocumentPage] = []
+    settings = get_settings()
 
     with fitz.open(file_path) as pdf_document:
         raw_page_texts = [page.get_text("text") for page in pdf_document]
-        normalized_page_texts = normalize_document_pages(raw_page_texts)
+        normalized_page_texts = normalize_document_pages(
+            raw_page_texts,
+            max_heading_words=settings.chunk_max_heading_words,
+        )
 
         for index, raw_text in enumerate(raw_page_texts, start=1):
             pages.append(

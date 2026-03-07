@@ -87,6 +87,11 @@ def parse_args() -> argparse.Namespace:
         type=int,
         help="Override the heading detector word-count ceiling.",
     )
+    parser.add_argument(
+        "--compare-presets",
+        action="store_true",
+        help="Run the benchmark across all built-in chunking presets and recommend one.",
+    )
     return parser.parse_args()
 
 
@@ -123,6 +128,25 @@ def resolve_chunking_config(args: argparse.Namespace) -> dict[str, int]:
     if args.chunk_max_heading_words is not None:
         config["max_heading_words"] = args.chunk_max_heading_words
     return config
+
+
+def validate_args(args: argparse.Namespace) -> None:
+    if not args.compare_presets:
+        return
+    if args.compare_to:
+        raise ValueError("--compare-to is not supported with --compare-presets.")
+    if any(
+        value is not None
+        for value in (
+            args.chunk_target_words,
+            args.chunk_min_words,
+            args.chunk_overlap_words,
+            args.chunk_max_heading_words,
+        )
+    ):
+        raise ValueError(
+            "--compare-presets cannot be combined with explicit chunking overrides."
+        )
 
 
 def create_pdf(page_texts: list[str]) -> bytes:
@@ -291,6 +315,29 @@ def summarize_results(
     }
 
 
+def summarize_preset_comparison(
+    *,
+    benchmark_name: str,
+    benchmark_path: Path,
+    top_k: int,
+    summaries: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    recommended_preset = recommend_chunking_preset(summaries)
+    return {
+        "benchmark": benchmark_name,
+        "benchmark_path": str(benchmark_path),
+        "generated_at": datetime.now(UTC).isoformat(),
+        "top_k": top_k,
+        "preset_summaries": summaries,
+        "recommended_preset": recommended_preset,
+        "recommended_chunking_config": summaries[recommended_preset]["chunking_config"],
+        "decision_basis": (
+            "Choose the preset with the strongest quality metrics; break exact ties with "
+            "lower average latency and then lower p95 latency."
+        ),
+    }
+
+
 def rate(results: list[dict[str, Any]], field_name: str) -> float:
     if not results:
         return 0.0
@@ -440,6 +487,62 @@ def format_signed_metric(delta: float, latency_metric: bool) -> str:
     return f"{prefix}{delta:.3f}{suffix}"
 
 
+def recommend_chunking_preset(summaries: dict[str, dict[str, Any]]) -> str:
+    def ranking_key(item: tuple[str, dict[str, Any]]) -> tuple[float, ...]:
+        _, summary = item
+        quality_values = tuple(float(summary[metric]) for metric in QUALITY_METRICS)
+        latency_values = (
+            -float(summary["average_latency_ms"]),
+            -float(summary["latency_p95_ms"]),
+        )
+        return quality_values + latency_values
+
+    return max(summaries.items(), key=ranking_key)[0]
+
+
+def render_preset_comparison_report(comparison: dict[str, Any]) -> str:
+    lines = [
+        f"# Chunking Preset Comparison: {comparison['benchmark']}",
+        "",
+        f"- Generated at: `{comparison['generated_at']}`",
+        f"- Benchmark file: `{comparison['benchmark_path']}`",
+        f"- Top-k: `{comparison['top_k']}`",
+        f"- Recommended preset: `{comparison['recommended_preset']}`",
+        (
+            "- Recommended config: "
+            f"`{json.dumps(comparison['recommended_chunking_config'], sort_keys=True)}`"
+        ),
+        f"- Decision basis: {comparison['decision_basis']}",
+        "",
+        "## Presets",
+        "",
+    ]
+
+    for preset_name, summary in comparison["preset_summaries"].items():
+        lines.extend(
+            [
+                f"### {preset_name}",
+                "",
+                f"- Chunking config: `{json.dumps(summary['chunking_config'], sort_keys=True)}`",
+                f"- Retrieval hit rate: `{format_metric(summary['retrieval_hit_rate'])}`",
+                f"- Citation hit rate: `{format_metric(summary['citation_hit_rate'])}`",
+                f"- Support accuracy: `{format_metric(summary['support_accuracy'])}`",
+                f"- Answer match rate: `{format_metric(summary['answer_match_rate'])}`",
+                (
+                    f"- Unsupported precision: `{format_metric(summary['unsupported_precision'])}`"
+                    if summary["unsupported_precision"] is not None
+                    else "- Unsupported precision: `n/a`"
+                ),
+                f"- Average latency: `{summary['average_latency_ms']:.2f} ms`",
+                f"- P50 latency: `{summary['latency_p50_ms']:.2f} ms`",
+                f"- P95 latency: `{summary['latency_p95_ms']:.2f} ms`",
+                "",
+            ]
+        )
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def write_json(path: Path, payload: dict[str, Any]) -> None:
     ensure_parent_directory(path)
     path.write_text(json.dumps(payload, indent=2) + "\n")
@@ -450,12 +553,13 @@ def write_text(path: Path, content: str) -> None:
     path.write_text(content)
 
 
-def main() -> int:
-    args = parse_args()
-    benchmark_path = resolve_project_relative_path(args.benchmark)
-    benchmark = json.loads(benchmark_path.read_text())
-    chunking_config = resolve_chunking_config(args)
-
+def run_benchmark(
+    *,
+    benchmark_path: Path,
+    benchmark: dict[str, Any],
+    top_k: int,
+    chunking_config: dict[str, int],
+) -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="ebook-rag-eval-") as temp_dir:
         temp_root = Path(temp_dir)
         os.environ["DATABASE_URL"] = f"sqlite:///{temp_root / 'eval.db'}"
@@ -513,7 +617,7 @@ def main() -> int:
                         json={
                             "question": question_case["question"],
                             "document_id": document_id,
-                            "top_k": args.top_k,
+                            "top_k": top_k,
                             "include_trace": True,
                         },
                     )
@@ -563,31 +667,63 @@ def main() -> int:
                         )
                     )
 
-    summary = summarize_results(
+    return summarize_results(
         benchmark_name=benchmark["name"],
         benchmark_path=benchmark_path,
-        top_k=args.top_k,
+        top_k=top_k,
         chunking_config=chunking_config,
         results=results,
     )
 
+
+def main() -> int:
+    args = parse_args()
+    validate_args(args)
+    benchmark_path = resolve_project_relative_path(args.benchmark)
+    benchmark = json.loads(benchmark_path.read_text())
+
+    if args.compare_presets:
+        payload = summarize_preset_comparison(
+            benchmark_name=benchmark["name"],
+            benchmark_path=benchmark_path,
+            top_k=args.top_k,
+            summaries={
+                preset_name: run_benchmark(
+                    benchmark_path=benchmark_path,
+                    benchmark=benchmark,
+                    top_k=args.top_k,
+                    chunking_config=dict(config),
+                )
+                for preset_name, config in CHUNKING_PRESETS.items()
+            },
+        )
+    else:
+        payload = run_benchmark(
+            benchmark_path=benchmark_path,
+            benchmark=benchmark,
+            top_k=args.top_k,
+            chunking_config=resolve_chunking_config(args),
+        )
+
     if args.compare_to:
         baseline_path = resolve_project_relative_path(args.compare_to)
         baseline_summary = json.loads(baseline_path.read_text())
-        summary["comparison"] = compare_summaries(summary, baseline_summary)
+        payload["comparison"] = compare_summaries(payload, baseline_summary)
 
     if args.output_json:
-        write_json(resolve_project_relative_path(args.output_json), summary)
+        write_json(resolve_project_relative_path(args.output_json), payload)
 
     if args.output_markdown:
-        write_text(
-            resolve_project_relative_path(args.output_markdown),
-            render_markdown_report(summary),
+        report = (
+            render_preset_comparison_report(payload)
+            if args.compare_presets
+            else render_markdown_report(payload)
         )
+        write_text(resolve_project_relative_path(args.output_markdown), report)
 
-    print(json.dumps(summary, indent=2))
+    print(json.dumps(payload, indent=2))
 
-    if args.fail_on_regression and summary.get("comparison", {}).get("has_regressions"):
+    if args.fail_on_regression and payload.get("comparison", {}).get("has_regressions"):
         return 1
     return 0
 
