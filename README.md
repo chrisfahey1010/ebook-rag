@@ -105,6 +105,7 @@ Current implementation includes:
 - shared query/evidence term normalization for lexical retrieval and extractive QA matching
 - long-document retrieval tuning that adds distinctive-term-aware lexical/rerank scoring and rarity-aware candidate fusion
 - metadata-aware retrieval penalties and exact-query-run boosts to reduce front-matter-heavy false positives on long books
+- focused retrieval scoring that rewards full anchor/constraint coverage for low-frequency entity and date questions
 - pluggable reranker providers with token-overlap fallback, local cross-encoder support, and an OpenAI-compatible adapter
 - grounded question answering with citations
 - composite-question answer synthesis that requires support for each requested facet
@@ -113,6 +114,7 @@ Current implementation includes:
 - extractive QA scoring that adds lightweight answer-type cues for date/count/location questions while filtering metadata-like evidence more aggressively
 - sentence-level evidence excerpts for returned citations
 - per-answer-sentence citation attribution instead of mirroring the whole selected context window
+- question-aware citation ranking that breaks evidence ties using anchor terms, constraints, answer-type cues, and narrower page spans
 - pluggable QA providers, including a local extractive fallback and an OpenAI-compatible adapter
 - retrieval debug route and browser-side candidate inspector
 - an expanded curated eval set for retrieval, unsupported-answer, and citation regression checks
@@ -123,8 +125,8 @@ Current limitations:
 
 - PostgreSQL vector storage now follows the configured embedding dimension, but changing dimensions requires running migrations and reprocessing existing documents
 - context assembly is still heuristic even though answer traces now separate selected context from cited evidence
-- the long-document benchmark now has better unsupported-answer rejection and less metadata/front-matter confusion, but it still misses some exact-page citation targets and page-local fact questions on long books
-- date-specific and nickname-specific questions in the long-document benchmark can still retrieve the right neighborhood but choose the wrong sentence or citation page
+- the long-document benchmark now has better unsupported-answer rejection, less metadata/front-matter confusion, and stronger date-specific citation tie-breaking, but it still misses some exact-page citation targets and page-local fact questions on long books
+- nickname-specific and some page-local/date-specific questions in the long-document benchmark can still retrieve the right neighborhood but choose the wrong sentence or citation page
 - the default benchmark fixture now covers more retrieval failure modes, but it is still synthetic and should keep expanding toward harder multi-page citation coverage cases
 
 ## API snapshot
@@ -146,9 +148,9 @@ Upload registers the PDF, computes its SHA-256 checksum, stores the file locally
 
 Reprocessing reruns extraction and embedding generation for an existing document, which is useful after changing embedding models or dimensions.
 
-Retrieval accepts a natural-language query, embeds it, blends dense and lexical candidates, reranks them, and returns ranked matches with document metadata, page spans, dense, lexical, hybrid, rerank, and final scores. If a configured reranker backend fails at runtime, retrieval falls back to the local token-overlap reranker so the request still completes.
+Retrieval accepts a natural-language query, embeds it, blends dense and lexical candidates, reranks them, and returns ranked matches with document metadata, page spans, dense, lexical, hybrid, rerank, and final scores. The ranking path now gives extra weight to full anchor/constraint matches for low-frequency entity and date questions so generic date mentions are less likely to outrank exact fact passages. If a configured reranker backend fails at runtime, retrieval falls back to the local token-overlap reranker so the request still completes.
 
-QA builds on retrieval and returns a grounded answer plus structured citations. Before prompt construction, the QA layer now deduplicates near-identical retrieval hits, pulls in adjacent chunks when budget allows, and limits the final context window. The default local answerer is conservative and can decline to answer when the indexed content does not provide enough support. For composite questions, the extractive path now requires support for each requested facet instead of answering from only the strongest partial match. Citation selection is now evidence-aware instead of mirroring the whole selected context window, and returned citation text is narrowed to the most relevant supporting sentence when possible. Multi-sentence answers now attribute citations sentence-by-sentence so composite responses can cite only the chunks that actually support each part. A configurable OpenAI-compatible provider path is also available for model-backed generation.
+QA builds on retrieval and returns a grounded answer plus structured citations. Before prompt construction, the QA layer now deduplicates near-identical retrieval hits, pulls in adjacent chunks when budget allows, and limits the final context window. The default local answerer is conservative and can decline to answer when the indexed content does not provide enough support. For composite questions, the extractive path now requires support for each requested facet instead of answering from only the strongest partial match. Citation selection is now evidence-aware instead of mirroring the whole selected context window, and returned citation text is narrowed to the most relevant supporting sentence when possible. Citation ranking also uses the original question terms, answer-type cues, and narrower page spans to break ties when multiple passages contain similar answer text. Multi-sentence answers now attribute citations sentence-by-sentence so composite responses can cite only the chunks that actually support each part. A configurable OpenAI-compatible provider path is also available for model-backed generation.
 
 Provider selection is environment-driven. Embeddings, reranking, and answer generation can now be configured independently for local-only, hosted, or mixed setups.
 

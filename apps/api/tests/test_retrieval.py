@@ -529,3 +529,75 @@ def test_retrieval_prefers_chunk_with_distinctive_fact_terms_over_generic_mentio
     assert payload["matches"]
     assert payload["matches"][0]["page_start"] == 1
     assert "carey mcwilliams" in payload["matches"][0]["text"].lower()
+
+
+def test_retrieval_prefers_full_entity_and_date_support_when_dense_scores_are_flat(
+    client: TestClient, pdf_factory, monkeypatch
+) -> None:
+    generic_upload = client.post(
+        "/api/documents/upload",
+        files={
+            "file": (
+                "timeline.pdf",
+                pdf_factory(
+                    [
+                        (
+                            "Timeline\n\nThe article appeared in April 1965 after negotiations "
+                            "ended, but this summary does not identify who commissioned it."
+                        ),
+                    ]
+                ),
+                "application/pdf",
+            )
+        },
+    )
+    exact_upload = client.post(
+        "/api/documents/upload",
+        files={
+            "file": (
+                "preface.pdf",
+                pdf_factory(
+                    [
+                        (
+                            "Preface\n\nCarey McWilliams asked Hunter S. Thompson to write the "
+                            "original article on motorcycle gangs. The article appeared in "
+                            "April 1965."
+                        ),
+                    ]
+                ),
+                "application/pdf",
+            )
+        },
+    )
+    assert generic_upload.status_code == 201
+    assert exact_upload.status_code == 201
+    exact_document_id = exact_upload.json()["document"]["id"]
+
+    class _ZeroEmbeddingProvider:
+        dimensions = get_settings().embedding_dimensions
+
+        def embed_texts(self, texts: list[str]) -> list[list[float]]:
+            return [[0.0] * self.dimensions for _ in texts]
+
+    monkeypatch.setattr(
+        "ebook_rag_api.services.retrieval.get_embedding_provider",
+        lambda: _ZeroEmbeddingProvider(),
+    )
+
+    response = client.post(
+        "/api/retrieval/search",
+        json={
+            "query": (
+                "When did Carey McWilliams ask Hunter S. Thompson to write the "
+                "original article on motorcycle gangs?"
+            ),
+            "top_k": 3,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["matches"]
+    assert payload["matches"][0]["document_id"] == exact_document_id
+    assert "carey mcwilliams" in payload["matches"][0]["text"].lower()
+    assert "april 1965" in payload["matches"][0]["text"].lower()

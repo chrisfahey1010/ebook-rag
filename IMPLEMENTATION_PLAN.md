@@ -149,9 +149,9 @@ Once the remaining provider-layer documentation is in place, retrieval quality s
     - tighten unsupported-answer rejection for broad topical questions on long books using stronger distinctive-term support checks
   - remaining:
     - tune diversity/selection behavior against benchmarks instead of heuristics alone
-    - continue improving citation precision beyond the current selected-context vs cited-evidence split
-    - improve long-document retrieval for named entities and low-frequency facts revealed by the real-book benchmark
-    - improve answer/citation selection for date-specific and page-local fact questions that already retrieve the right neighborhood
+    - continue improving citation precision beyond the current selected-context vs cited-evidence split and question-aware tie-breaking
+    - improve long-document retrieval for named entities and low-frequency facts revealed by the real-book benchmark beyond the current focused anchor/constraint scoring
+    - improve answer/citation selection for nickname-specific, date-specific, and page-local fact questions that already retrieve the right neighborhood
 
 #### Why this is the second milestone
 

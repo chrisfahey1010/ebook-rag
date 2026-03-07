@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from math import log
 
@@ -18,6 +19,14 @@ from ebook_rag_api.services.text import (
     normalized_token_sequence,
     query_run_bonus,
     tokenize_terms,
+)
+
+YEAR_RE = re.compile(r"\b\d{4}\b")
+MONTH_RE = re.compile(
+    r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+    r"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|"
+    r"dec(?:ember)?)\b",
+    re.IGNORECASE,
 )
 
 
@@ -305,6 +314,10 @@ def fuse_candidates(
                 heading=chunks_by_id[chunk_id].heading,
             ),
         )
+        focus_bonus = _focused_query_match_bonus(
+            query=query,
+            text=f"{chunks_by_id[chunk_id].heading or ''} {chunks_by_id[chunk_id].text}".strip(),
+        )
         rarity_bonus = _query_term_rarity_bonus(
             query_terms=query_terms,
             passage_terms=candidate_term_sets.get(chunk_id, set()),
@@ -316,6 +329,7 @@ def fuse_candidates(
             dense_component
             + lexical_component
             + specificity_bonus * 0.3
+            + focus_bonus * 0.28
             + rarity_bonus * 0.25
             + query_run_bonus(
                 query,
@@ -448,6 +462,11 @@ def rerank_matches(
                     ),
                 )
                 * 0.18
+                + _focused_query_match_bonus(
+                    query=query,
+                    text=f"{match.chunk.heading or ''} {match.chunk.text}".strip(),
+                )
+                * 0.24
                 + query_run_bonus(
                     query,
                     f"{match.chunk.heading or ''} {match.chunk.text}".strip(),
@@ -470,3 +489,36 @@ def rerank_matches(
         )
     )
     return matches[:top_k]
+
+
+def _focused_query_match_bonus(*, query: str, text: str) -> float:
+    query_terms = tokenize_for_search(query)
+    if not query_terms:
+        return 0.0
+
+    passage_terms = tokenize_for_search(text)
+    if not passage_terms:
+        return 0.0
+
+    anchor_terms = extract_anchor_terms(query)
+    constraint_terms = extract_constraint_terms(query)
+    matched_anchor_terms = anchor_terms & passage_terms
+    matched_constraint_terms = constraint_terms & passage_terms
+
+    bonus = 0.0
+    if anchor_terms:
+        bonus += len(matched_anchor_terms) / len(anchor_terms) * 0.45
+    if constraint_terms:
+        bonus += len(matched_constraint_terms) / len(constraint_terms) * 0.4
+    if anchor_terms and matched_anchor_terms == anchor_terms:
+        bonus += 0.08
+    if constraint_terms and matched_constraint_terms == constraint_terms:
+        bonus += 0.1
+
+    if query.lower().startswith("when "):
+        if YEAR_RE.search(text):
+            bonus += 0.1
+        if MONTH_RE.search(text):
+            bonus += 0.1
+
+    return min(1.0, bonus)

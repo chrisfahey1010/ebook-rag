@@ -652,6 +652,51 @@ def test_select_evidence_citations_use_best_context_per_answer_sentence() -> Non
     assert [citation.chunk_id for citation in citations] == ["chunk-1", "chunk-3"]
 
 
+def test_select_evidence_citations_use_question_terms_to_break_page_ties() -> None:
+    wrong_primary_context = RetrievedChunkContext(
+        chunk_id="chunk-1",
+        document_id="doc-1",
+        document_title="Book",
+        document_filename="book.pdf",
+        chunk_index=10,
+        page_start=10,
+        page_end=10,
+        text="The article appeared in April 1965 after contract negotiations concluded.",
+        token_estimate=11,
+        score=0.96,
+        rerank_score=0.96,
+    )
+    better_context = RetrievedChunkContext(
+        chunk_id="chunk-2",
+        document_id="doc-1",
+        document_title="Book",
+        document_filename="book.pdf",
+        chunk_index=11,
+        page_start=11,
+        page_end=11,
+        text=(
+            "Carey McWilliams asked Hunter S. Thompson to write the original article. "
+            "The article appeared in April 1965."
+        ),
+        token_estimate=18,
+        score=0.92,
+        rerank_score=0.92,
+    )
+
+    citations = select_evidence_citations(
+        answer_text="The original article appeared in April 1965.",
+        contexts=[wrong_primary_context, better_context],
+        primary_context=wrong_primary_context,
+        question_text=(
+            "Who asked Hunter S. Thompson to write the original article on "
+            "motorcycle gangs and when did it appear?"
+        ),
+    )
+
+    assert [citation.chunk_id for citation in citations] == ["chunk-2"]
+    assert citations[0].page_start == 11
+
+
 def test_assemble_answer_contexts_prefers_direct_evidence_over_broader_summary() -> None:
     contexts = [
         RetrievedChunkContext(

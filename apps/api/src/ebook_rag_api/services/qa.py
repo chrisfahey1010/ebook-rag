@@ -132,6 +132,7 @@ class ExtractiveAnswerProvider:
             answer_text=answer_text,
             contexts=contexts,
             primary_context=selected_candidates[0].context,
+            question_text=question,
         )
 
         return GeneratedAnswer(answer_text=answer_text, supported=True, citations=citations)
@@ -203,6 +204,7 @@ class OpenAICompatibleAnswerProvider:
             citations=select_evidence_citations(
                 answer_text=answer_text.strip(),
                 contexts=contexts,
+                question_text=question,
             ),
         )
 
@@ -586,6 +588,7 @@ def select_evidence_citations(
     answer_text: str,
     contexts: list[RetrievedChunkContext],
     primary_context: RetrievedChunkContext | None = None,
+    question_text: str = "",
 ) -> list[RetrievedChunkContext]:
     citations: list[RetrievedChunkContext] = []
     seen_chunk_ids: set[str] = set()
@@ -593,6 +596,7 @@ def select_evidence_citations(
     for index, support_unit in enumerate(support_units):
         ranked = _rank_evidence_contexts(
             answer_text=support_unit,
+            question_text=question_text,
             contexts=contexts,
             primary_context=primary_context if index == 0 else None,
         )
@@ -609,22 +613,36 @@ def select_evidence_citations(
     if citations:
         return citations
     if primary_context is not None:
-        return [_build_evidence_excerpt(answer_text=answer_text, context=primary_context)]
+        return [
+            _build_evidence_excerpt(
+                answer_text=answer_text,
+                question_text=question_text,
+                context=primary_context,
+            )
+        ]
     return []
 
 
 def _rank_evidence_contexts(
     *,
     answer_text: str,
+    question_text: str,
     contexts: list[RetrievedChunkContext],
     primary_context: RetrievedChunkContext | None = None,
 ) -> list[tuple[float, RetrievedChunkContext]]:
     answer_terms = _tokenize(answer_text)
+    question_terms = _tokenize(question_text)
+    anchor_terms = extract_anchor_terms(question_text)
+    constraint_terms = extract_constraint_terms(question_text)
     ranked: list[tuple[float, RetrievedChunkContext]] = []
     for context in contexts:
         if context.score <= 0:
             continue
-        evidence_context = _build_evidence_excerpt(answer_text=answer_text, context=context)
+        evidence_context = _build_evidence_excerpt(
+            answer_text=answer_text,
+            question_text=question_text,
+            context=context,
+        )
         context_terms = _tokenize(evidence_context.text)
         overlap = len(answer_terms & context_terms)
         phrase_match = contains_normalized_phrase(answer_text, evidence_context.text)
@@ -635,11 +653,34 @@ def _rank_evidence_contexts(
         if not is_primary and overlap < minimum_overlap and not phrase_match:
             continue
 
+        anchor_overlap = len(anchor_terms & context_terms)
+        constraint_overlap = len(constraint_terms & context_terms)
+        question_overlap = len(question_terms & context_terms)
+        page_span = max(1, context.page_end - context.page_start + 1)
         score = overlap + context.score
         if phrase_match:
             score += 0.5
+        if question_text:
+            score += _score_sentence_against_text(
+                prompt_text=question_text,
+                prompt_terms=question_terms,
+                anchor_terms=anchor_terms,
+                constraint_terms=constraint_terms,
+                candidate=SentenceCandidate(
+                    sentence=evidence_context.text,
+                    context=context,
+                    score=context.score,
+                    terms=context_terms,
+                ),
+            ) * 0.55
+        score += anchor_overlap * 0.22
+        score += constraint_overlap * 0.26
+        score += min(0.18, question_overlap * 0.04)
+        score += _answer_type_bonus(question_text, evidence_context.text) * 0.5
+        score -= metadata_noise_score(evidence_context.text) * 0.2
+        score -= (page_span - 1) * 0.05
         if is_primary:
-            score += 1.0
+            score += 0.2
         ranked.append((score, evidence_context))
 
     ranked.sort(
@@ -656,6 +697,7 @@ def _rank_evidence_contexts(
 def _build_evidence_excerpt(
     *,
     answer_text: str,
+    question_text: str,
     context: RetrievedChunkContext,
 ) -> RetrievedChunkContext:
     sentences = _split_sentences(context.text)
@@ -663,14 +705,29 @@ def _build_evidence_excerpt(
         return context
 
     answer_terms = _tokenize(answer_text)
+    question_terms = _tokenize(question_text)
+    anchor_terms = extract_anchor_terms(question_text)
+    constraint_terms = extract_constraint_terms(question_text)
     candidate_spans = _build_candidate_spans(sentences)
     best_span = max(
         candidate_spans,
-        key=lambda span: _evidence_span_sort_key(answer_terms=answer_terms, answer_text=answer_text, span=span),
+        key=lambda span: _evidence_span_sort_key(
+            answer_terms=answer_terms,
+            answer_text=answer_text,
+            question_text=question_text,
+            question_terms=question_terms,
+            anchor_terms=anchor_terms,
+            constraint_terms=constraint_terms,
+            span=span,
+        ),
     )
     if len(answer_terms & _tokenize(best_span)) == 0:
         return context
-    trimmed_span = _trim_span_to_support(answer_text=answer_text, span=best_span)
+    trimmed_span = _trim_span_to_support(
+        answer_text=answer_text,
+        question_text=question_text,
+        span=best_span,
+    )
     return replace(context, text=trimmed_span)
 
 
@@ -687,19 +744,38 @@ def _evidence_span_sort_key(
     *,
     answer_terms: set[str],
     answer_text: str,
+    question_text: str,
+    question_terms: set[str],
+    anchor_terms: set[str],
+    constraint_terms: set[str],
     span: str,
-) -> tuple[float, float, float, float]:
+) -> tuple[float, float, float, float, float, float, float]:
     span_terms = _tokenize(span)
     overlap = len(answer_terms & span_terms)
     normalized_overlap = _normalized_term_overlap(answer_terms, span_terms)
     phrase_match = 1.0 if contains_normalized_phrase(answer_text, span) else 0.0
+    question_overlap = _normalized_term_overlap(question_terms, span_terms)
+    anchor_overlap = _normalized_term_overlap(anchor_terms, span_terms)
+    constraint_overlap = _normalized_term_overlap(constraint_terms, span_terms)
+    answer_type_bonus = _answer_type_bonus(question_text, span)
     # Prefer narrower spans when support is otherwise similar.
     brevity_bonus = 1 / max(len(span_terms), 1)
-    return (float(overlap), normalized_overlap, phrase_match, brevity_bonus)
+    return (
+        float(overlap),
+        normalized_overlap,
+        constraint_overlap,
+        anchor_overlap,
+        question_overlap + answer_type_bonus,
+        phrase_match,
+        brevity_bonus,
+    )
 
 
-def _trim_span_to_support(*, answer_text: str, span: str) -> str:
+def _trim_span_to_support(*, answer_text: str, question_text: str, span: str) -> str:
     answer_terms = _tokenize(answer_text)
+    question_terms = _tokenize(question_text)
+    anchor_terms = extract_anchor_terms(question_text)
+    constraint_terms = extract_constraint_terms(question_text)
     clauses = [clause.strip(" ,;:") for clause in CLAUSE_SPLIT_RE.split(span) if clause.strip(" ,;:")]
     if len(clauses) <= 1:
         return span
@@ -708,12 +784,25 @@ def _trim_span_to_support(*, answer_text: str, span: str) -> str:
         (
             len(answer_terms & _tokenize(clause)),
             contains_normalized_phrase(answer_text, clause),
+            _normalized_term_overlap(question_terms, _tokenize(clause)),
+            _normalized_term_overlap(anchor_terms, _tokenize(clause)),
+            _normalized_term_overlap(constraint_terms, _tokenize(clause)),
+            _answer_type_bonus(question_text, clause),
             -len(_tokenize(clause)),
             clause,
         )
         for clause in clauses
     ]
-    best_score, phrase_match, _, best_clause = max(clause_scores, key=lambda item: item[:3])
+    (
+        best_score,
+        phrase_match,
+        _question_overlap,
+        _anchor_overlap,
+        _constraint_overlap,
+        _answer_type,
+        _,
+        best_clause,
+    ) = max(clause_scores, key=lambda item: item[:7])
     if best_score == 0 and not phrase_match:
         return span
     best_index = clauses.index(best_clause)
