@@ -15,3 +15,4 @@ node_modules/
 *.pyc
 *.db
 apps/api/data/uploads/
+apps/api/benchmarks/results/

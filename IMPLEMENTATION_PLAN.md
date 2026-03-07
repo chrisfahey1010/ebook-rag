@@ -32,7 +32,7 @@ The main gap is that several critical pieces are still baseline implementations:
 - context assembly is improved but still heuristic rather than benchmark-tuned
 - changing embedding dimensions now requires a migration plus document reprocessing, so the reindex workflow needs to stay explicit in docs and tooling
 - ingestion is still synchronous, even though status and reprocessing APIs from the spec are now in place
-- evaluation exists, but the benchmark set and regression workflow are still minimal
+- evaluation now includes saved JSON/Markdown benchmark artifacts and baseline comparison, but the dataset is still small and synthetic
 
 ## Planning principles
 
@@ -241,6 +241,9 @@ This project should be able to prove quality improvements, not just demonstrate 
 
 #### Backend and tooling work
 
+- completed:
+  - benchmark runner can persist JSON and Markdown summaries
+  - benchmark runs can be compared against a prior baseline with regression-friendly metrics
 - expand the benchmark dataset from synthetic smoke tests to a small curated eval set:
   - 3 to 5 real PDFs
   - 10 to 20 questions per PDF
@@ -354,8 +357,8 @@ The project should be considered V1 complete when all of the following are true:
 
 The best next coding slice is:
 
-1. decide whether to keep the fixed 128-dimension vector schema for V1 or migrate to model-native dimensions now
-2. expand eval coverage so retrieval and answer-quality changes can be measured against a less synthetic benchmark set
-3. add ingestion status and reprocessing APIs so model or chunking changes can be applied without re-uploading documents
+1. expand eval coverage from the current synthetic set to a smaller curated document set with stronger citation expectations
+2. tune retrieval/context selection against those benchmark failures, especially diversity and adjacent-chunk behavior
+3. tighten citation attribution so selected context and actually used evidence are no longer conflated
 
-That sequence keeps the OpenAI-compatible path intact while reducing the main remaining retrieval risk, making quality changes measurable, and closing one of the clearest spec gaps.
+That sequence uses the new regression tooling to drive the next quality pass instead of guessing, while keeping the OpenAI-compatible path intact and pushing the core grounded-answering quality higher before adding more product surface area.

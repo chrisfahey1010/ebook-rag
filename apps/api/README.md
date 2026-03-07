@@ -29,3 +29,24 @@ Set `EMBEDDING_DIMENSIONS` to match the configured embedding model before runnin
 - `POST /api/documents/upload`
 - `GET /api/ingestion/{document_id}/status`
 - `POST /api/ingestion/{document_id}/reprocess`
+
+## Benchmark workflow
+
+From `apps/api`, you can run the local benchmark and optionally persist comparable artifacts:
+
+```bash
+uv run python scripts/run_eval.py \
+  --output-json benchmarks/results/latest.json \
+  --output-markdown benchmarks/results/latest.md
+```
+
+To compare a run against a prior baseline and fail on regressions:
+
+```bash
+uv run python scripts/run_eval.py \
+  --output-json benchmarks/results/latest.json \
+  --compare-to benchmarks/results/baseline.json \
+  --fail-on-regression
+```
+
+The benchmark summary includes retrieval hit rate, citation hit rate, support accuracy, answer match rate, unsupported precision, and average/P50/P95 latency.

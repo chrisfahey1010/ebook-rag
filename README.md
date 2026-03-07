@@ -150,6 +150,18 @@ uv run python scripts/run_eval.py
 
 This uses [`sample_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/sample_eval.json) to upload a small set of synthetic PDFs, ask benchmark questions, and print retrieval hit rate, citation hit rate, support accuracy, answer match rate, and average latency.
 
+For regression tracking, the benchmark runner can also persist JSON and Markdown artifacts and compare a run against a saved baseline:
+
+```bash
+uv run python scripts/run_eval.py \
+  --output-json benchmarks/results/latest.json \
+  --output-markdown benchmarks/results/latest.md \
+  --compare-to benchmarks/results/baseline.json \
+  --fail-on-regression
+```
+
+The expanded summary now includes unsupported precision plus P50/P95 latency so retrieval and citation changes can be compared over time.
+
 ## Implementation plan
 
 The active project plan now lives in [`IMPLEMENTATION_PLAN.md`](/home/chris/repos/ebook-rag/IMPLEMENTATION_PLAN.md).
