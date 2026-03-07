@@ -85,6 +85,8 @@ def test_retrieval_search_returns_ranked_matches(
     assert payload["matches"]
     assert payload["matches"][0]["document_id"] == mars_document_id
     assert "rover" in payload["matches"][0]["text"].lower()
+    assert payload["matches"][0]["provenance"]["char_range"]["start_page"] == 1
+    assert payload["matches"][0]["provenance"]["page_char_ranges"][0]["page_number"] == 1
     assert "dense_score" in payload["matches"][0]
     assert "lexical_score" in payload["matches"][0]
     assert "hybrid_score" in payload["matches"][0]
@@ -172,6 +174,8 @@ def test_debug_retrieve_returns_ranked_candidates_for_workspace_inspection(
     assert payload["matches"]
     assert payload["matches"][0]["document_id"] == document_id
     assert "inspect the seals" in payload["matches"][0]["text"].lower()
+    assert payload["matches"][0]["provenance"]["char_range"]["start_page"] == 1
+    assert payload["matches"][0]["provenance"]["page_char_ranges"][0]["start_char"] == 0
     assert "dense_score" in payload["matches"][0]
     assert "lexical_score" in payload["matches"][0]
     assert "hybrid_score" in payload["matches"][0]
@@ -215,6 +219,9 @@ def test_debug_document_chunks_returns_persisted_chunk_metadata(
     assert payload["chunks"][0]["page_start"] == 1
     assert payload["chunks"][0]["token_estimate"] > 0
     assert 1 in payload["chunks"][0]["provenance"]["source_page_numbers"]
+    assert payload["chunks"][0]["provenance"]["char_range"]["start_page"] == 1
+    assert payload["chunks"][0]["provenance"]["page_char_ranges"][0]["page_number"] == 1
+    assert payload["chunks"][0]["provenance"]["paragraphs"][0]["char_start"] == 0
     assert "inspect the seals" in payload["chunks"][0]["text"].lower()
 
 

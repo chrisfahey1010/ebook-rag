@@ -91,6 +91,7 @@ Current implementation includes:
 - persisted per-page text with repeated header/footer cleanup and page-number stripping
 - larger paragraph-aware chunks with section heading metadata
 - persisted per-document chunking configuration and per-chunk provenance metadata for debug inspection
+- persisted normalized-text character-span provenance per chunk and paragraph for page-local citation debugging
 - chunk embeddings generated during ingestion
 - ingestion status lookup and document reprocessing endpoints
 - pluggable embedding providers with hashing, local `sentence-transformers`, and OpenAI-compatible adapters
@@ -149,17 +150,17 @@ Current limitations:
 
 Upload registers the PDF, computes its SHA-256 checksum, stores the file locally, extracts per-page text with PyMuPDF, removes repeated boundary noise such as headers, footers, and standalone page numbers when detectable, collapses soft-wrapped body lines while preserving short heading blocks, builds larger paragraph-aware chunks with page spans, token estimates, and heading metadata, generates embeddings, persists the records, and returns document plus ingestion status metadata.
 
-Reprocessing reruns extraction and embedding generation for an existing document, which is useful after changing embedding models, embedding dimensions, or chunking settings. Each indexed document now persists the chunking configuration that was used, and debug chunk inspection also includes page/paragraph provenance metadata so reprocessing decisions are easier to reason about.
+Reprocessing reruns extraction and embedding generation for an existing document, which is useful after changing embedding models, embedding dimensions, or chunking settings. Each indexed document now persists the chunking configuration that was used, and debug chunk inspection also includes page, paragraph, and normalized-text character-span provenance metadata so reprocessing decisions are easier to reason about.
 
-Retrieval accepts a natural-language query, embeds it, blends dense and lexical candidates, reranks them, and returns ranked matches with document metadata, page spans, dense, lexical, hybrid, rerank, and final scores. The ranking path now gives extra weight to full anchor/constraint matches for low-frequency entity and date questions so generic date mentions are less likely to outrank exact fact passages. If a configured reranker backend fails at runtime, retrieval falls back to the local token-overlap reranker so the request still completes.
+Retrieval accepts a natural-language query, embeds it, blends dense and lexical candidates, reranks them, and returns ranked matches with document metadata, page spans, chunk provenance, and dense, lexical, hybrid, rerank, and final scores. The ranking path now gives extra weight to full anchor/constraint matches for low-frequency entity and date questions so generic date mentions are less likely to outrank exact fact passages. If a configured reranker backend fails at runtime, retrieval falls back to the local token-overlap reranker so the request still completes.
 
 QA builds on retrieval and returns a grounded answer plus structured citations. Before prompt construction, the QA layer now deduplicates near-identical retrieval hits, pulls in adjacent chunks when budget allows, and limits the final context window. The default local answerer is conservative and can decline to answer when the indexed content does not provide enough support. For composite questions, the extractive path now requires support for each requested facet instead of answering from only the strongest partial match. Citation selection is now evidence-aware instead of mirroring the whole selected context window, and returned citation text is narrowed to the most relevant supporting sentence when possible. Citation ranking also uses the original question terms, answer-type cues, and narrower page spans to break ties when multiple passages contain similar answer text. Multi-sentence answers now attribute citations sentence-by-sentence so composite responses can cite only the chunks that actually support each part. A configurable OpenAI-compatible provider path is also available for model-backed generation.
 
 Provider selection is environment-driven. Embeddings, reranking, and answer generation can now be configured independently for local-only, hosted, or mixed setups.
 
-`POST /api/qa/ask` now accepts `include_trace=true` to expose the selected context window, cited evidence, prompt snapshot, provider name, and timing breakdown used for answer generation.
+`POST /api/qa/ask` now accepts `include_trace=true` to expose the selected context window, cited evidence, chunk provenance, prompt snapshot, provider name, and timing breakdown used for answer generation.
 
-Debug retrieval exposes the ranked candidate list directly so the frontend can show what the retriever selected before answer generation, including dense and rerank score breakdowns. Additional debug routes now expose persisted document chunks and standalone reranker scoring so chunking, retrieval, and rerank behavior can be inspected separately during tuning.
+Debug retrieval exposes the ranked candidate list directly so the frontend can show what the retriever selected before answer generation, including dense and rerank score breakdowns plus chunk provenance. Additional debug routes now expose persisted document chunks and standalone reranker scoring so chunking, retrieval, rerank, and page-local source spans can be inspected separately during tuning.
 
 ## Evaluation
 

@@ -128,6 +128,8 @@ def test_qa_answer_can_include_trace_payload(
     assert "lexical_score" in payload["trace"]["retrieved_chunks"][0]
     assert "hybrid_score" in payload["trace"]["retrieved_chunks"][0]
     assert "rerank_score" in payload["trace"]["retrieved_chunks"][0]
+    assert payload["citations"][0]["provenance"]["char_range"]["start_page"] == 1
+    assert payload["trace"]["retrieved_chunks"][0]["provenance"]["page_char_ranges"][0]["page_number"] == 1
     assert "Question: What should happen before ignition?" in payload["trace"]["prompt_snapshot"]
     assert "Inspect the heat shield before ignition." in payload["trace"]["prompt_snapshot"]
     assert payload["trace"]["selected_contexts"][0]["chunk_id"] == payload["citations"][0]["chunk_id"]

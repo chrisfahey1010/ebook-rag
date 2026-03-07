@@ -17,6 +17,7 @@ class QACitation(BaseModel):
     page_start: int
     page_end: int
     text: str
+    provenance: dict[str, object] | None
     dense_score: float
     lexical_score: float
     hybrid_score: float
@@ -50,6 +51,7 @@ class QATraceChunk(BaseModel):
     page_start: int
     page_end: int
     text: str
+    provenance: dict[str, object] | None
     dense_score: float
     lexical_score: float
     hybrid_score: float

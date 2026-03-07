@@ -20,6 +20,7 @@ class RetrievalMatch(BaseModel):
     page_start: int
     page_end: int
     text: str
+    provenance: dict[str, object] | None = None
     dense_score: float
     lexical_score: float
     hybrid_score: float

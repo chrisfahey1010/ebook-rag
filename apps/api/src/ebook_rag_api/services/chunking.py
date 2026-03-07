@@ -19,6 +19,8 @@ class PageParagraph:
     global_index: int
     page_number: int
     page_paragraph_index: int
+    char_start: int
+    char_end: int
     text: str
     is_heading: bool = False
 
@@ -35,14 +37,24 @@ def extract_page_paragraphs(
     global_index = 0
     for page in sorted(pages, key=lambda item: item.page_number):
         page_paragraph_index = 0
+        cursor = 0
         for block in page.normalized_text.split("\n\n"):
+            block_start = page.normalized_text.find(block, cursor)
+            if block_start < 0:
+                block_start = cursor
+            block_end = block_start + len(block)
+            cursor = block_end + 2
             text = block.strip()
             if text:
+                leading_whitespace = len(block) - len(block.lstrip())
+                trailing_whitespace = len(block) - len(block.rstrip())
                 paragraphs.append(
                     PageParagraph(
                         global_index=global_index,
                         page_number=page.page_number,
                         page_paragraph_index=page_paragraph_index,
+                        char_start=block_start + leading_whitespace,
+                        char_end=block_end - trailing_whitespace,
                         text=text,
                         is_heading=is_heading_block(text, max_heading_words=config.max_heading_words),
                     )
@@ -108,6 +120,9 @@ def _create_chunk(
     page_numbers = sorted({item.page_number for item in paragraphs})
     first_paragraph = paragraphs[0]
     last_paragraph = paragraphs[-1]
+    paragraphs_by_page: dict[int, list[PageParagraph]] = {}
+    for paragraph in paragraphs:
+        paragraphs_by_page.setdefault(paragraph.page_number, []).append(paragraph)
     return DocumentChunk(
         chunk_index=chunk_index,
         page_start=page_numbers[0],
@@ -128,6 +143,31 @@ def _create_chunk(
                 "end_page": last_paragraph.page_number,
                 "end_index": last_paragraph.page_paragraph_index,
             },
+            "char_range": {
+                "start_page": first_paragraph.page_number,
+                "start_char": first_paragraph.char_start,
+                "end_page": last_paragraph.page_number,
+                "end_char": last_paragraph.char_end,
+            },
+            "page_char_ranges": [
+                {
+                    "page_number": page_number,
+                    "start_char": page_paragraphs[0].char_start,
+                    "end_char": page_paragraphs[-1].char_end,
+                }
+                for page_number, page_paragraphs in sorted(paragraphs_by_page.items())
+            ],
+            "paragraphs": [
+                {
+                    "global_index": paragraph.global_index,
+                    "page_number": paragraph.page_number,
+                    "page_paragraph_index": paragraph.page_paragraph_index,
+                    "char_start": paragraph.char_start,
+                    "char_end": paragraph.char_end,
+                    "is_heading": paragraph.is_heading,
+                }
+                for paragraph in paragraphs
+            ],
         },
     )
 

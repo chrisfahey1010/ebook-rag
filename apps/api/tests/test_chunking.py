@@ -91,3 +91,45 @@ def test_build_document_chunks_respects_configured_chunk_sizes() -> None:
     )
 
     assert len(small_chunks) > len(large_chunks)
+
+
+def test_build_document_chunks_records_character_span_provenance() -> None:
+    page_text = "\n\n".join(
+        [
+            "Chapter 7",
+            "First body paragraph with precise source offsets.",
+            "Second body paragraph with more context.",
+        ]
+    )
+    pages = [
+        DocumentPage(
+            page_number=1,
+            raw_text="",
+            normalized_text=page_text,
+        )
+    ]
+
+    chunks = build_document_chunks(pages)
+
+    assert chunks
+    provenance = chunks[0].provenance
+    assert provenance is not None
+    assert provenance["char_range"] == {
+        "start_page": 1,
+        "start_char": 0,
+        "end_page": 1,
+        "end_char": len(page_text),
+    }
+    assert provenance["page_char_ranges"] == [
+        {
+            "page_number": 1,
+            "start_char": 0,
+            "end_char": len(page_text),
+        }
+    ]
+    assert provenance["paragraphs"][1]["char_start"] == page_text.index(
+        "First body paragraph with precise source offsets."
+    )
+    assert provenance["paragraphs"][1]["char_end"] == provenance["paragraphs"][1]["char_start"] + len(
+        "First body paragraph with precise source offsets."
+    )

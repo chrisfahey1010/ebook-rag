@@ -185,6 +185,8 @@ This milestone is now in progress with the first implementation slice completed.
   - `POST /api/ingestion/{document_id}/reprocess`
   - persisted per-document chunking configuration used during ingestion
   - persisted per-chunk provenance metadata for page/paragraph inspection
+  - persisted chunk character-span provenance in normalized page text for page-local debugging
+  - exposed chunk provenance through retrieval results, QA citations, and QA traces
   - web UI controls for ingestion status refresh and document reprocessing
   - eval runner support for chunking presets and overrides
 - remaining:
@@ -194,7 +196,6 @@ This milestone is now in progress with the first implementation slice completed.
     - keep page mappings explicit
   - improve chunk metadata:
     - heading or section label when detectable
-    - consider chunk character-span metadata if page/paragraph provenance proves insufficient
   - revisit chunk sizing:
     - current chunking defaults are still smaller than the spec target
     - benchmark a few chunk sizes and promote one to the documented default instead of choosing by intuition
@@ -375,14 +376,14 @@ The project should be considered V1 complete when all of the following are true:
 
 The best next coding slice is now:
 
-1. continue Milestone 3 provenance work from the new chunking baseline
-   - decide whether paragraph/page provenance is enough or whether character-span metadata is worth the cost
-   - add that metadata only if it materially improves citation/page-local debugging
-2. close the remaining Milestone 1/7 documentation gap
+1. close the remaining Milestone 1/7 documentation gap
    - expand the example `.env` guidance into explicit Ollama and llama.cpp-style presets
    - document recommended local embedding, reranker, and generation model combinations
-3. broaden the benchmark set before more retrieval tuning
+2. broaden the benchmark set before more retrieval tuning
    - add harder multi-page citation and unsupported-answer cases
    - add more real-document fixtures so chunking and retrieval decisions are not overfit to the current synthetic-heavy set
+3. use the new character-span provenance to tighten page-local citation inspection
+   - surface normalized-text offsets in the web debug workspace where they help source verification
+   - add eval cases that distinguish right-page versus wrong-sentence citation failures
 
-The chunking decision itself is now benchmark-backed for the current fixture set, and normalization now preserves heading blocks while collapsing soft-wrapped body lines more cleanly. The next step should therefore focus on the remaining provenance and documentation gaps, while using broader eval coverage to decide whether another retrieval or chunking change is justified.
+The chunking decision itself is now benchmark-backed for the current fixture set, normalization now preserves heading blocks while collapsing soft-wrapped body lines more cleanly, and chunk provenance now includes character-span offsets for page-local inspection. The next step should therefore focus on the remaining documentation gap and broader eval coverage, while using the richer provenance to decide whether another retrieval or citation-selection change is justified.

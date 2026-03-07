@@ -41,6 +41,7 @@ class RetrievedChunkContext:
     page_start: int
     page_end: int
     text: str
+    provenance: dict[str, object] | None = None
     token_estimate: int = 0
     dense_score: float = 0.0
     lexical_score: float = 0.0
@@ -315,6 +316,7 @@ def build_chunk_context(match: ChunkSearchMatch) -> RetrievedChunkContext:
         page_start=chunk.page_start,
         page_end=chunk.page_end,
         text=chunk.text,
+        provenance=chunk.provenance,
         token_estimate=chunk.token_estimate,
         dense_score=match.dense_score,
         lexical_score=match.lexical_score,

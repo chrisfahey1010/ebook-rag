@@ -42,6 +42,7 @@ def debug_retrieve(
                 page_start=match.chunk.page_start,
                 page_end=match.chunk.page_end,
                 text=match.chunk.text,
+                provenance=match.chunk.provenance,
                 dense_score=match.dense_score,
                 lexical_score=match.lexical_score,
                 hybrid_score=match.hybrid_score,
