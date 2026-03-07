@@ -100,6 +100,7 @@ Current implementation includes:
 - optional lexical retrieval blended with dense candidates before reranking
 - reranking over hybrid retrieval candidates before answer context assembly
 - answer context assembly with near-duplicate suppression, adjacent-chunk expansion, and token-budgeting
+- shared query/evidence term normalization for lexical retrieval and extractive QA matching
 - pluggable reranker providers with token-overlap fallback, local cross-encoder support, and an OpenAI-compatible adapter
 - grounded question answering with citations
 - pluggable QA providers, including a local extractive fallback and an OpenAI-compatible adapter
@@ -110,8 +111,8 @@ Current implementation includes:
 Current limitations:
 
 - PostgreSQL vector storage now follows the configured embedding dimension, but changing dimensions requires running migrations and reprocessing existing documents
-- context assembly is still heuristic and citations are selected from the final context window rather than from a richer answer-trace model
-- retrieval quality is now measurable, but benchmark results should be refreshed and compared after additional retrieval improvements
+- context assembly is still heuristic even though answer traces now separate selected context from cited evidence
+- the benchmark workflow now uses a curated local fixture by default, but the dataset is still small and should keep expanding as retrieval tuning continues
 
 ## API snapshot
 
@@ -132,23 +133,23 @@ Reprocessing reruns extraction and embedding generation for an existing document
 
 Retrieval accepts a natural-language query, embeds it, blends dense and lexical candidates, reranks them, and returns ranked matches with document metadata, page spans, dense, lexical, hybrid, rerank, and final scores. If a configured reranker backend fails at runtime, retrieval falls back to the local token-overlap reranker so the request still completes.
 
-QA builds on retrieval and returns a grounded answer plus structured citations. Before prompt construction, the QA layer now deduplicates near-identical retrieval hits, pulls in adjacent chunks when budget allows, and limits the final context window. The default local answerer is conservative and can decline to answer when the indexed content does not provide enough support. A configurable OpenAI-compatible provider path is also available for model-backed generation.
+QA builds on retrieval and returns a grounded answer plus structured citations. Before prompt construction, the QA layer now deduplicates near-identical retrieval hits, pulls in adjacent chunks when budget allows, and limits the final context window. The default local answerer is conservative and can decline to answer when the indexed content does not provide enough support. Citation selection is now evidence-aware instead of mirroring the whole selected context window. A configurable OpenAI-compatible provider path is also available for model-backed generation.
 
 Provider selection is environment-driven. Embeddings, reranking, and answer generation can now be configured independently for local-only, hosted, or mixed setups.
 
-`POST /api/qa/ask` now accepts `include_trace=true` to expose the selected context window, prompt snapshot, provider name, and timing breakdown used for answer generation.
+`POST /api/qa/ask` now accepts `include_trace=true` to expose the selected context window, cited evidence, prompt snapshot, provider name, and timing breakdown used for answer generation.
 
 Debug retrieval exposes the ranked candidate list directly so the frontend can show what the retriever selected before answer generation, including dense and rerank score breakdowns.
 
 ## Evaluation
 
-Run the sample retrieval and citation benchmark from [`apps/api`](/home/chris/repos/ebook-rag/apps/api):
+Run the default retrieval and citation benchmark from [`apps/api`](/home/chris/repos/ebook-rag/apps/api):
 
 ```bash
 uv run python scripts/run_eval.py
 ```
 
-This uses [`sample_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/sample_eval.json) to upload a small set of synthetic PDFs, ask benchmark questions, and print retrieval hit rate, citation hit rate, support accuracy, answer match rate, and average latency.
+This now uses [`curated_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/curated_eval.json) by default to upload a small curated set of local PDFs, ask benchmark questions, and print retrieval hit rate, citation hit rate, support accuracy, answer match rate, unsupported precision, and latency metrics. The older [`sample_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/sample_eval.json) fixture is still available if you want a smaller smoke test.
 
 For regression tracking, the benchmark runner can also persist JSON and Markdown artifacts and compare a run against a saved baseline:
 

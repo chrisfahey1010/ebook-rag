@@ -1,0 +1,94 @@
+{
+  "name": "curated-eval",
+  "documents": [
+    {
+      "filename": "rover-handbook.pdf",
+      "pages": [
+        "Field checklist\n\nBefore any long field session, charge the rover battery fully and verify the spare pack is sealed.",
+        "Traverse maintenance\n\nAfter each rocky traverse, inspect the rover wheels for chipped treads and trapped debris.",
+        "Storage guidance\n\nStore replacement batteries in a dry compartment away from dust and direct heat."
+      ],
+      "questions": [
+        {
+          "question": "What should happen before a long field session?",
+          "expected_supported": true,
+          "expected_answer_contains": ["charge the rover battery"],
+          "expected_citation_pages": [1]
+        },
+        {
+          "question": "What needs to be inspected after rocky traverses?",
+          "expected_supported": true,
+          "expected_answer_contains": ["inspect the rover wheels"],
+          "expected_citation_pages": [2]
+        },
+        {
+          "question": "Where should replacement batteries be stored?",
+          "expected_supported": true,
+          "expected_answer_contains": ["dry compartment"],
+          "expected_citation_pages": [3]
+        },
+        {
+          "question": "What does the handbook say about whale migration routes?",
+          "expected_supported": false,
+          "expected_citation_pages": []
+        }
+      ]
+    },
+    {
+      "filename": "spaceflight-manual.pdf",
+      "pages": [
+        "Launch preparation\n\nInspect the heat shield before ignition and confirm all external locks are clear.",
+        "Flight operations\n\nMonitor cabin pressure during ascent and orbit insertion, and log any unusual vibration.",
+        "Landing procedure\n\nDeploy the parachute after atmospheric entry, then confirm the descent thrusters are armed."
+      ],
+      "questions": [
+        {
+          "question": "What should be inspected before ignition?",
+          "expected_supported": true,
+          "expected_answer_contains": ["inspect the heat shield"],
+          "expected_citation_pages": [1]
+        },
+        {
+          "question": "When is the parachute deployed?",
+          "expected_supported": true,
+          "expected_answer_contains": ["after atmospheric entry"],
+          "expected_citation_pages": [3]
+        },
+        {
+          "question": "What should the crew monitor during ascent?",
+          "expected_supported": true,
+          "expected_answer_contains": ["monitor cabin pressure"],
+          "expected_citation_pages": [2]
+        }
+      ]
+    },
+    {
+      "filename": "marine-notes.pdf",
+      "pages": [
+        "Currents\n\nCold currents carry nutrients toward coastal ecosystems and support dense food webs.",
+        "Feeding season\n\nWhales migrate through colder water regions during feeding seasons because prey is abundant there.",
+        "Reef systems\n\nCoral reefs depend on stable temperature ranges and clear water to remain healthy."
+      ],
+      "questions": [
+        {
+          "question": "What do the notes say about whale migration?",
+          "expected_supported": true,
+          "expected_answer_contains": ["whales migrate through colder water regions"],
+          "expected_citation_pages": [2]
+        },
+        {
+          "question": "What helps coastal ecosystems receive nutrients?",
+          "expected_supported": true,
+          "expected_answer_contains": ["cold currents"],
+          "expected_citation_pages": [1]
+        },
+        {
+          "question": "What temperature conditions do coral reefs depend on?",
+          "expected_supported": true,
+          "expected_answer_contains": ["stable temperature ranges"],
+          "expected_citation_pages": [3]
+        }
+      ]
+    }
+  ]
+}

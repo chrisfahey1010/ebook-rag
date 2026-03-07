@@ -1,4 +1,3 @@
-import re
 from dataclasses import dataclass
 
 from sqlalchemy import desc, func, select
@@ -9,9 +8,11 @@ from ebook_rag_api.db.vector import is_postgresql_dialect
 from ebook_rag_api.models import Document, DocumentChunk
 from ebook_rag_api.services.embeddings import get_embedding_provider
 from ebook_rag_api.services.reranking import TokenOverlapReranker, get_reranker
-
-WHITESPACE_RE = re.compile(r"\s+")
-TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
+from ebook_rag_api.services.text import (
+    contains_normalized_phrase,
+    normalize_query_text,
+    tokenize_terms,
+)
 
 
 @dataclass(frozen=True)
@@ -33,7 +34,7 @@ class HybridCandidate:
 
 
 def normalize_query(text: str) -> str:
-    return WHITESPACE_RE.sub(" ", text).strip()
+    return normalize_query_text(text)
 
 
 def cosine_similarity(left: list[float], right: list[float]) -> float:
@@ -217,13 +218,11 @@ def lexical_overlap_score(query: str, text: str, heading: str | None = None) -> 
 
 
 def tokenize_for_search(text: str) -> set[str]:
-    return {token for token in TOKEN_RE.findall(text.lower()) if len(token) > 1}
+    return tokenize_terms(text)
 
 
 def contains_query_phrase(query: str, text: str) -> bool:
-    normalized_query = " ".join(TOKEN_RE.findall(query.lower()))
-    normalized_text = " ".join(TOKEN_RE.findall(text.lower()))
-    return bool(normalized_query and normalized_query in normalized_text)
+    return contains_normalized_phrase(query, text)
 
 
 def fuse_candidates(

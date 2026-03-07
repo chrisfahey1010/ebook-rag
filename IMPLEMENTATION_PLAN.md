@@ -32,7 +32,7 @@ The main gap is that several critical pieces are still baseline implementations:
 - context assembly is improved but still heuristic rather than benchmark-tuned
 - changing embedding dimensions now requires a migration plus document reprocessing, so the reindex workflow needs to stay explicit in docs and tooling
 - ingestion is still synchronous, even though status and reprocessing APIs from the spec are now in place
-- evaluation now includes saved JSON/Markdown benchmark artifacts and baseline comparison, but the dataset is still small and synthetic
+- evaluation now includes saved JSON/Markdown benchmark artifacts, baseline comparison, and a curated local fixture, but the dataset is still small
 
 ## Planning principles
 
@@ -141,7 +141,7 @@ Once the remaining provider-layer documentation is in place, retrieval quality s
     - enforce a token budget
   - remaining:
     - tune diversity/selection behavior against benchmarks instead of heuristics alone
-    - improve citation precision so answer traces can distinguish selected context from actually used evidence
+    - continue improving citation precision beyond the current selected-context vs cited-evidence split
 
 #### Why this is the second milestone
 
@@ -357,8 +357,8 @@ The project should be considered V1 complete when all of the following are true:
 
 The best next coding slice is:
 
-1. expand eval coverage from the current synthetic set to a smaller curated document set with stronger citation expectations
+1. expand the curated eval set beyond the initial fixture so page-level citation expectations cover more retrieval failure modes
 2. tune retrieval/context selection against those benchmark failures, especially diversity and adjacent-chunk behavior
-3. tighten citation attribution so selected context and actually used evidence are no longer conflated
+3. tighten citation attribution further so cited evidence narrows from chunk-level support toward the exact supporting spans
 
-That sequence uses the new regression tooling to drive the next quality pass instead of guessing, while keeping the OpenAI-compatible path intact and pushing the core grounded-answering quality higher before adding more product surface area.
+That sequence keeps the new regression tooling in the loop, builds on the initial cited-evidence trace split, and continues pushing core grounded-answering quality higher before adding more product surface area.

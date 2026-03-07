@@ -263,3 +263,47 @@ def test_retrieval_can_surface_lexical_matches_when_dense_scores_are_flat(
     assert payload["matches"][0]["dense_score"] == 0
     assert payload["matches"][0]["lexical_score"] > 0
     assert payload["matches"][0]["hybrid_score"] > 0
+
+
+def test_retrieval_lexical_matching_handles_simple_inflection_changes(
+    client: TestClient, pdf_factory, monkeypatch
+) -> None:
+    upload = client.post(
+        "/api/documents/upload",
+        files={
+            "file": (
+                "landing.pdf",
+                pdf_factory(
+                    [
+                        "Landing checklist\n\nDeploy the parachute after atmospheric entry.",
+                        "Maintenance\n\nInspect the landing struts after touchdown.",
+                    ]
+                ),
+                "application/pdf",
+            )
+        },
+    )
+    assert upload.status_code == 201
+
+    class _ZeroEmbeddingProvider:
+        dimensions = get_settings().embedding_dimensions
+
+        def embed_texts(self, texts: list[str]) -> list[list[float]]:
+            return [[0.0] * self.dimensions for _ in texts]
+
+    monkeypatch.setattr(
+        "ebook_rag_api.services.retrieval.get_embedding_provider",
+        lambda: _ZeroEmbeddingProvider(),
+    )
+
+    response = client.post(
+        "/api/retrieval/search",
+        json={"query": "When is the parachute deployed?", "top_k": 3},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["matches"]
+    assert payload["matches"][0]["page_start"] == 1
+    assert "deploy the parachute" in payload["matches"][0]["text"].lower()
+    assert payload["matches"][0]["lexical_score"] > 0

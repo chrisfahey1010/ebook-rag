@@ -9,37 +9,8 @@ from sqlalchemy.orm import Session
 
 from ebook_rag_api.core.config import get_settings
 from ebook_rag_api.services.retrieval import ChunkSearchMatch, normalize_query, search_chunks
+from ebook_rag_api.services.text import STOPWORDS, TOKEN_RE, tokenize_terms
 
-STOPWORDS = {
-    "a",
-    "about",
-    "an",
-    "and",
-    "are",
-    "as",
-    "at",
-    "be",
-    "by",
-    "does",
-    "for",
-    "from",
-    "how",
-    "in",
-    "is",
-    "it",
-    "of",
-    "on",
-    "or",
-    "that",
-    "the",
-    "this",
-    "to",
-    "what",
-    "which",
-    "who",
-    "with",
-}
-TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
 SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 
 
@@ -82,6 +53,7 @@ class QATrace:
     answer_provider: str
     retrieved_chunks: list[RetrievedChunkContext]
     selected_contexts: list[RetrievedChunkContext]
+    cited_contexts: list[RetrievedChunkContext]
     prompt_snapshot: str
     timings: QATimingBreakdown
     answer: GeneratedAnswer
@@ -119,7 +91,12 @@ class ExtractiveAnswerProvider:
                     continue
 
                 lexical_score = overlap / max(len(question_terms), 1)
-                combined_score = lexical_score + max(context.score, 0.0) * 0.15
+                added_term_bonus = len(sentence_terms - STOPWORDS) / max(len(sentence_terms), 1)
+                combined_score = (
+                    lexical_score
+                    + added_term_bonus * 0.1
+                    + max(context.score, 0.0) * 0.15
+                )
                 if combined_score > best_score:
                     best_score = combined_score
                     best_sentence = sentence
@@ -129,15 +106,11 @@ class ExtractiveAnswerProvider:
             return _unsupported_answer()
 
         answer_text = best_sentence if best_sentence.endswith((".", "!", "?")) else f"{best_sentence}."
-        citations = [best_context]
-        for context in contexts:
-            if context.chunk_id == best_context.chunk_id:
-                continue
-            if context.score <= 0:
-                continue
-            citations.append(context)
-            if len(citations) == 3:
-                break
+        citations = select_evidence_citations(
+            answer_text=answer_text,
+            contexts=contexts,
+            primary_context=best_context,
+        )
 
         return GeneratedAnswer(answer_text=answer_text, supported=True, citations=citations)
 
@@ -205,7 +178,10 @@ class OpenAICompatibleAnswerProvider:
         return GeneratedAnswer(
             answer_text=answer_text.strip(),
             supported=True,
-            citations=select_citations(contexts),
+            citations=select_evidence_citations(
+                answer_text=answer_text.strip(),
+                contexts=contexts,
+            ),
         )
 
 
@@ -258,7 +234,10 @@ def ask_question_with_trace(
     )
     retrieved_at = perf_counter()
     retrieved_chunks = [build_chunk_context(match) for match in matches]
-    selected_contexts = assemble_answer_contexts(retrieved_chunks)
+    selected_contexts = assemble_answer_contexts(
+        question=normalized_question,
+        contexts=retrieved_chunks,
+    )
     prompt_snapshot = (
         build_qa_prompt(
             question=normalized_question,
@@ -278,6 +257,7 @@ def ask_question_with_trace(
         answer_provider=type(answer_provider).__name__,
         retrieved_chunks=retrieved_chunks,
         selected_contexts=selected_contexts,
+        cited_contexts=answer.citations,
         prompt_snapshot=prompt_snapshot,
         timings=QATimingBreakdown(
             normalization_ms=(normalized_at - started_at) * 1000,
@@ -312,25 +292,35 @@ def build_chunk_context(match: ChunkSearchMatch) -> RetrievedChunkContext:
 
 
 def assemble_answer_contexts(
+    *,
+    question: str,
     contexts: list[RetrievedChunkContext],
 ) -> list[RetrievedChunkContext]:
     if not contexts:
         return []
 
+    question_terms = _tokenize(question)
+    ranked_contexts = _rank_contexts_for_selection(question_terms=question_terms, contexts=contexts)
     selected: list[RetrievedChunkContext] = []
     consumed_chunk_ids: set[str] = set()
+    covered_terms: set[str] = set()
     token_budget = 1400
     remaining_budget = token_budget
 
-    for context in _deduplicate_contexts(contexts):
+    for context in _deduplicate_contexts(ranked_contexts):
         if context.chunk_id in consumed_chunk_ids:
             continue
         normalized_cost = max(context.token_estimate, _estimate_tokens(context.text), 1)
         if normalized_cost > remaining_budget and selected:
             continue
+        context_terms = _tokenize(context.text)
+        adds_term_coverage = bool(question_terms and (context_terms - covered_terms) & question_terms)
+        if selected and not adds_term_coverage and _is_same_location_as_existing(context, selected):
+            continue
 
         selected.append(context)
         consumed_chunk_ids.add(context.chunk_id)
+        covered_terms.update(context_terms & question_terms)
         remaining_budget -= normalized_cost
         if remaining_budget <= 0:
             break
@@ -349,6 +339,7 @@ def assemble_answer_contexts(
             )
             selected.append(adjacent_context)
             consumed_chunk_ids.add(adjacent_context.chunk_id)
+            covered_terms.update(_tokenize(adjacent_context.text) & question_terms)
             remaining_budget -= adjacent_cost
             if remaining_budget <= 0:
                 break
@@ -424,11 +415,7 @@ def _jaccard_similarity(left: set[str], right: set[str]) -> float:
 
 
 def _tokenize(text: str) -> set[str]:
-    return {
-        token
-        for token in TOKEN_RE.findall(text.lower())
-        if token not in STOPWORDS and len(token) > 1
-    }
+    return tokenize_terms(text, drop_stopwords=True)
 
 
 def build_qa_prompt(question: str, contexts: list[RetrievedChunkContext]) -> str:
@@ -472,15 +459,79 @@ def extract_chat_completion_text(payload: dict) -> str:
     return ""
 
 
-def select_citations(contexts: list[RetrievedChunkContext]) -> list[RetrievedChunkContext]:
-    citations: list[RetrievedChunkContext] = []
+def select_evidence_citations(
+    *,
+    answer_text: str,
+    contexts: list[RetrievedChunkContext],
+    primary_context: RetrievedChunkContext | None = None,
+) -> list[RetrievedChunkContext]:
+    answer_terms = _tokenize(answer_text)
+    ranked: list[tuple[float, RetrievedChunkContext]] = []
     for context in contexts:
         if context.score <= 0:
             continue
+        context_terms = _tokenize(context.text)
+        overlap = len(answer_terms & context_terms)
+        if overlap == 0 and primary_context is not None and context.chunk_id != primary_context.chunk_id:
+            continue
+        score = overlap + context.score
+        if primary_context is not None and context.chunk_id == primary_context.chunk_id:
+            score += 1.0
+        ranked.append((score, context))
+
+    ranked.sort(
+        key=lambda item: (
+            -item[0],
+            -item[1].score,
+            item[1].page_start,
+            item[1].chunk_index,
+        )
+    )
+    citations: list[RetrievedChunkContext] = []
+    seen_chunk_ids: set[str] = set()
+    for _, context in ranked:
+        if context.chunk_id in seen_chunk_ids:
+            continue
         citations.append(context)
+        seen_chunk_ids.add(context.chunk_id)
         if len(citations) == 3:
             break
-    return citations
+
+    if citations:
+        return citations
+    if primary_context is not None:
+        return [primary_context]
+    return []
+
+
+def _rank_contexts_for_selection(
+    *,
+    question_terms: set[str],
+    contexts: list[RetrievedChunkContext],
+) -> list[RetrievedChunkContext]:
+    def sort_key(context: RetrievedChunkContext) -> tuple[float, float, float, int, int]:
+        term_overlap = len(question_terms & _tokenize(context.text))
+        return (
+            float(term_overlap),
+            context.score,
+            context.rerank_score,
+            -context.page_start,
+            -context.chunk_index,
+        )
+
+    return sorted(contexts, key=sort_key, reverse=True)
+
+
+def _is_same_location_as_existing(
+    candidate: RetrievedChunkContext,
+    selected: list[RetrievedChunkContext],
+) -> bool:
+    return any(
+        context.document_id == candidate.document_id
+        and context.page_start == candidate.page_start
+        and context.page_end == candidate.page_end
+        for context in selected
+    )
 
 
 def _unsupported_answer() -> GeneratedAnswer:

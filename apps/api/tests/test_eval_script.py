@@ -175,3 +175,10 @@ def test_render_markdown_report_includes_comparison_and_failures() -> None:
     assert "latency_p95_ms: `+8.000 ms`" in report
     assert "manual.pdf :: What happens before launch?" in report
     assert "answer=False" in report
+
+
+def test_expand_page_span_includes_all_pages_in_a_chunk_range() -> None:
+    run_eval = load_run_eval_module()
+
+    assert run_eval.expand_page_span(3, 3) == {3}
+    assert run_eval.expand_page_span(2, 4) == {2, 3, 4}

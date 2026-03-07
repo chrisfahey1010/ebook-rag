@@ -35,7 +35,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--benchmark",
-        default="benchmarks/sample_eval.json",
+        default="benchmarks/curated_eval.json",
         help="Path to a benchmark JSON file relative to apps/api or absolute.",
     )
     parser.add_argument(
@@ -83,6 +83,12 @@ def resolve_project_relative_path(raw_path: str) -> Path:
 
 def ensure_parent_directory(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+
+
+def expand_page_span(start_page: int, end_page: int) -> set[int]:
+    if end_page < start_page:
+        return {start_page}
+    return set(range(start_page, end_page + 1))
 
 
 def percentile(values: list[float], percentile_rank: float) -> float:
@@ -408,12 +414,24 @@ def main() -> int:
                     trace = payload["trace"]
 
                     expected_pages = set(question_case.get("expected_citation_pages", []))
-                    retrieved_pages = {
-                        int(chunk["page_start"]) for chunk in trace["retrieved_chunks"]
-                    }
-                    cited_pages = {
-                        int(citation["page_start"]) for citation in payload["citations"]
-                    }
+                    retrieved_pages = set().union(
+                        *[
+                            expand_page_span(
+                                int(chunk["page_start"]),
+                                int(chunk.get("page_end", chunk["page_start"])),
+                            )
+                            for chunk in trace["retrieved_chunks"]
+                        ]
+                    )
+                    cited_pages = set().union(
+                        *[
+                            expand_page_span(
+                                int(citation["page_start"]),
+                                int(citation.get("page_end", citation["page_start"])),
+                            )
+                            for citation in payload["citations"]
+                        ]
+                    )
                     answer_terms = [
                         term.lower()
                         for term in question_case.get("expected_answer_contains", [])

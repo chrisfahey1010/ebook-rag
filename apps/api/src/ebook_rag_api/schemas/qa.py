@@ -61,5 +61,6 @@ class QATrace(BaseModel):
     answer_provider: str
     retrieved_chunks: list[QATraceChunk]
     selected_contexts: list[QATraceChunk]
+    cited_contexts: list[QATraceChunk]
     prompt_snapshot: str
     timings: QATimingBreakdown

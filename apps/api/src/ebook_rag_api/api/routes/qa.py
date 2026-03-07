@@ -89,6 +89,24 @@ def answer_question(
                     )
                     for context in qa_trace.selected_contexts
                 ],
+                cited_contexts=[
+                    QATraceChunk(
+                        chunk_id=context.chunk_id,
+                        document_id=context.document_id,
+                        document_title=context.document_title,
+                        document_filename=context.document_filename,
+                        chunk_index=context.chunk_index,
+                        page_start=context.page_start,
+                        page_end=context.page_end,
+                        text=context.text,
+                        dense_score=context.dense_score,
+                        lexical_score=context.lexical_score,
+                        hybrid_score=context.hybrid_score,
+                        rerank_score=context.rerank_score,
+                        score=context.score,
+                    )
+                    for context in qa_trace.cited_contexts
+                ],
                 prompt_snapshot=qa_trace.prompt_snapshot,
                 timings=QATimingBreakdown(
                     normalization_ms=qa_trace.timings.normalization_ms,

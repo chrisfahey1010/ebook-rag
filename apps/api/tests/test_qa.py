@@ -124,4 +124,49 @@ def test_qa_answer_can_include_trace_payload(
     assert "Question: What should happen before ignition?" in payload["trace"]["prompt_snapshot"]
     assert "Inspect the heat shield before ignition." in payload["trace"]["prompt_snapshot"]
     assert payload["trace"]["selected_contexts"][0]["chunk_id"] == payload["citations"][0]["chunk_id"]
+    assert payload["trace"]["cited_contexts"][0]["chunk_id"] == payload["citations"][0]["chunk_id"]
     assert payload["trace"]["timings"]["total_ms"] >= 0
+
+
+def test_qa_citations_follow_the_answer_evidence_instead_of_all_selected_context(
+    client: TestClient, pdf_factory
+) -> None:
+    upload_response = client.post(
+        "/api/documents/upload",
+        files={
+            "file": (
+                "manual.pdf",
+                pdf_factory(
+                    [
+                        "Maintenance\n\nInspect the rover wheels after each rocky traverse.",
+                        "Storage\n\nStore replacement batteries in a dry compartment away from dust.",
+                    ]
+                ),
+                "application/pdf",
+            )
+        },
+    )
+
+    assert upload_response.status_code == 201
+    document_id = upload_response.json()["document"]["id"]
+
+    response = client.post(
+        "/api/qa/ask",
+        json={
+            "question": "What should be inspected after rocky traverses?",
+            "document_id": document_id,
+            "top_k": 4,
+            "include_trace": True,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["supported"] is True
+    assert "inspect the rover wheels" in payload["answer"].lower()
+    assert len(payload["citations"]) == 1
+    assert payload["citations"][0]["page_start"] == 1
+    assert payload["trace"]["selected_contexts"]
+    assert payload["trace"]["cited_contexts"]
+    assert len(payload["trace"]["cited_contexts"]) == 1
+    assert payload["trace"]["cited_contexts"][0]["page_start"] == 1
