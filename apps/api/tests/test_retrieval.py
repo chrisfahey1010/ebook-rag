@@ -179,6 +179,67 @@ def test_debug_retrieve_returns_ranked_candidates_for_workspace_inspection(
     assert payload["matches"][0]["score"] >= payload["matches"][-1]["score"]
 
 
+def test_debug_document_chunks_returns_persisted_chunk_metadata(
+    client: TestClient, pdf_factory
+) -> None:
+    upload_response = client.post(
+        "/api/documents/upload",
+        files={
+            "file": (
+                "manual.pdf",
+                pdf_factory(
+                    [
+                        "Operations\n\nInspect the seals before the vehicle leaves the hangar.",
+                        "Maintenance\n\nRecharge the auxiliary battery after each field day.",
+                    ]
+                ),
+                "application/pdf",
+            )
+        },
+    )
+
+    assert upload_response.status_code == 201
+    document_id = upload_response.json()["document"]["id"]
+
+    response = client.get(f"/api/debug/documents/{document_id}/chunks")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["document_id"] == document_id
+    assert payload["document_filename"] == "manual.pdf"
+    assert payload["chunk_count"] == len(payload["chunks"])
+    assert payload["chunk_count"] >= 1
+    assert payload["chunks"]
+    assert payload["chunks"][0]["chunk_index"] == 0
+    assert payload["chunks"][0]["page_start"] == 1
+    assert payload["chunks"][0]["token_estimate"] > 0
+    assert "inspect the seals" in payload["chunks"][0]["text"].lower()
+
+
+def test_debug_rerank_returns_ranked_scores_for_explicit_passages(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/api/debug/rerank",
+        json={
+            "query": "What should happen before launch?",
+            "passages": [
+                "Archive the telemetry after landing.",
+                "Inspect the cooling lines before launch.",
+                "Store spare seals in the side locker.",
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["reranker"]
+    assert len(payload["results"]) == 3
+    assert payload["results"][0]["index"] == 1
+    assert "before launch" in payload["results"][0]["text"].lower()
+    assert payload["results"][0]["rerank_score"] >= payload["results"][-1]["rerank_score"]
+
+
 def test_retrieval_falls_back_to_token_overlap_when_reranker_fails(
     client: TestClient, pdf_factory, monkeypatch
 ) -> None:

@@ -178,6 +178,50 @@ def test_qa_citations_follow_the_answer_evidence_instead_of_all_selected_context
     assert payload["trace"]["cited_contexts"][0]["page_start"] == 1
 
 
+def test_qa_answer_can_combine_support_for_multi_part_questions(
+    client: TestClient, pdf_factory
+) -> None:
+    upload_response = client.post(
+        "/api/documents/upload",
+        files={
+            "file": (
+                "manual.pdf",
+                pdf_factory(
+                    [
+                        "Departure\n\nCharge the rover battery before leaving camp.",
+                        "Maintenance\n\nInspect the rover wheels after each rocky traverse.",
+                    ]
+                ),
+                "application/pdf",
+            )
+        },
+    )
+
+    assert upload_response.status_code == 201
+    document_id = upload_response.json()["document"]["id"]
+
+    response = client.post(
+        "/api/qa/ask",
+        json={
+            "question": "What should the crew do before leaving camp and after a rocky traverse?",
+            "document_id": document_id,
+            "top_k": 4,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["supported"] is True
+    assert "charge the rover battery" in payload["answer"].lower()
+    assert "inspect the rover wheels" in payload["answer"].lower()
+    cited_pages = {
+        page
+        for citation in payload["citations"]
+        for page in range(citation["page_start"], citation["page_end"] + 1)
+    }
+    assert cited_pages == {1, 2}
+
+
 def test_assemble_answer_contexts_skips_irrelevant_adjacent_chunks() -> None:
     contexts = [
         RetrievedChunkContext(
@@ -244,6 +288,71 @@ def test_select_evidence_citations_returns_sentence_level_excerpt() -> None:
     assert citations[0].text == "Inspect the cooling lines before launch."
 
 
+def test_select_evidence_citations_trims_to_supporting_clause() -> None:
+    context = RetrievedChunkContext(
+        chunk_id="chunk-1",
+        document_id="doc-1",
+        document_title="Manual",
+        document_filename="manual.pdf",
+        chunk_index=1,
+        page_start=4,
+        page_end=4,
+        text=(
+            "Before launch, inspect the cooling lines, confirm the hatch seal, "
+            "and archive the maintenance log after landing."
+        ),
+        token_estimate=24,
+        score=0.9,
+        rerank_score=0.9,
+    )
+
+    citations = select_evidence_citations(
+        answer_text="Inspect the cooling lines before launch.",
+        contexts=[context],
+        primary_context=context,
+    )
+
+    assert len(citations) == 1
+    assert citations[0].text == "Before launch, inspect the cooling lines"
+
+
+def test_qa_answer_handles_line_wrapped_sentence_without_returning_fragment(
+    client: TestClient, pdf_factory
+) -> None:
+    upload_response = client.post(
+        "/api/documents/upload",
+        files={
+            "file": (
+                "archive.pdf",
+                pdf_factory(
+                    [
+                        "Reading room\n\nResearchers must leave pens at the locker station and use only the issued pencils at the\n tables.",
+                    ]
+                ),
+                "application/pdf",
+            )
+        },
+    )
+
+    assert upload_response.status_code == 201
+    document_id = upload_response.json()["document"]["id"]
+
+    response = client.post(
+        "/api/qa/ask",
+        json={
+            "question": "What writing tool may researchers use at the tables?",
+            "document_id": document_id,
+            "top_k": 4,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["supported"] is True
+    assert "issued pencils" in payload["answer"].lower()
+    assert payload["answer"].strip().lower() != "tables."
+
+
 def test_select_evidence_citations_filters_weak_overlap_contexts() -> None:
     primary_context = RetrievedChunkContext(
         chunk_id="chunk-1",
@@ -279,3 +388,46 @@ def test_select_evidence_citations_filters_weak_overlap_contexts() -> None:
     )
 
     assert [citation.chunk_id for citation in citations] == ["chunk-1"]
+
+
+def test_assemble_answer_contexts_prefers_direct_evidence_over_broader_summary() -> None:
+    contexts = [
+        RetrievedChunkContext(
+            chunk_id="chunk-1",
+            document_id="doc-1",
+            document_title="Manual",
+            document_filename="manual.pdf",
+            chunk_index=1,
+            page_start=1,
+            page_end=1,
+            text=(
+                "Launch summary. Before launch, crews inspect systems, review weather, "
+                "confirm cargo locks, and inspect the cooling lines."
+            ),
+            token_estimate=22,
+            score=0.97,
+            lexical_score=0.8,
+            rerank_score=0.97,
+        ),
+        RetrievedChunkContext(
+            chunk_id="chunk-2",
+            document_id="doc-1",
+            document_title="Manual",
+            document_filename="manual.pdf",
+            chunk_index=2,
+            page_start=2,
+            page_end=2,
+            text="Inspect the cooling lines before launch.",
+            token_estimate=6,
+            score=0.9,
+            lexical_score=0.7,
+            rerank_score=0.9,
+        ),
+    ]
+
+    selected = assemble_answer_contexts(
+        question="What should happen to the cooling lines before launch?",
+        contexts=contexts,
+    )
+
+    assert selected[0].chunk_id == "chunk-2"

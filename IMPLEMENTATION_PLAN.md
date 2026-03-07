@@ -32,7 +32,7 @@ The main gap is that several critical pieces are still baseline implementations:
 - context assembly is improved but still heuristic rather than benchmark-tuned
 - changing embedding dimensions now requires a migration plus document reprocessing, so the reindex workflow needs to stay explicit in docs and tooling
 - ingestion is still synchronous, even though status and reprocessing APIs from the spec are now in place
-- evaluation now includes saved JSON/Markdown benchmark artifacts, baseline comparison, and a curated local fixture, but the dataset is still small
+- evaluation now includes saved JSON/Markdown benchmark artifacts, baseline comparison, a broader curated local fixture, and additional debug routes, but citation precision still drops on some multi-part questions
 
 ## Planning principles
 
@@ -139,6 +139,7 @@ Once the remaining provider-layer documentation is in place, retrieval quality s
     - deduplicate near-identical chunks
     - pull adjacent chunks into the final context window when useful
     - enforce a token budget
+    - prefer direct evidence over broader summary chunks when selecting answer context
   - remaining:
     - tune diversity/selection behavior against benchmarks instead of heuristics alone
     - continue improving citation precision beyond the current selected-context vs cited-evidence split
@@ -244,15 +245,12 @@ This project should be able to prove quality improvements, not just demonstrate 
 - completed:
   - benchmark runner can persist JSON and Markdown summaries
   - benchmark runs can be compared against a prior baseline with regression-friendly metrics
-- expand the benchmark dataset from synthetic smoke tests to a small curated eval set:
-  - 3 to 5 real PDFs
-  - 10 to 20 questions per PDF
-  - expected citation pages
-  - expected support labels
-- persist or snapshot benchmark results so runs are comparable over time
-- add more debug APIs from the spec:
+  - expanded curated eval set with harder multi-page and citation-coverage cases
   - `GET /api/debug/documents/{document_id}/chunks`
   - `POST /api/debug/rerank`
+- remaining:
+  - keep expanding the benchmark dataset toward harder multi-page citation and unsupported-answer cases
+- persist or snapshot benchmark results so runs are comparable over time
 - optionally add a simple benchmark report artifact in JSON or Markdown
 
 #### Recommended metrics
@@ -357,8 +355,8 @@ The project should be considered V1 complete when all of the following are true:
 
 The best next coding slice is:
 
-1. expand the curated eval set beyond the initial fixture so page-level citation expectations cover more retrieval failure modes
-2. tune retrieval/context selection against those benchmark failures, especially diversity and adjacent-chunk behavior
-3. tighten citation attribution further so cited evidence narrows from chunk-level support toward the exact supporting spans
+1. tune multi-part answer synthesis so composite questions prefer the correct supporting facts instead of nearby but semantically related sentences
+2. tighten citation attribution for composite answers so cited pages collapse to only the actually used evidence pages
+3. keep expanding the curated eval set with harder multi-page support and unsupported-answer edge cases as those failures are discovered
 
-That sequence keeps the new regression tooling in the loop, builds on the initial cited-evidence trace split, and continues pushing core grounded-answering quality higher before adding more product surface area.
+That sequence keeps the regression tooling in the loop, builds on the new debug surfaces and broader eval fixture, and focuses the next work on the benchmark failures that still remain instead of shifting to new product surface area.

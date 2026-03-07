@@ -1,13 +1,21 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ebook_rag_api.db import get_db_session
+from ebook_rag_api.models import Document, DocumentChunk
 from ebook_rag_api.schemas.retrieval import (
+    DebugDocumentChunk,
+    DebugDocumentChunksResponse,
+    DebugRerankRequest,
+    DebugRerankResponse,
+    DebugRerankResult,
     RetrievalMatch,
     RetrievalSearchRequest,
     RetrievalSearchResponse,
 )
 from ebook_rag_api.services.retrieval import search_chunks
+from ebook_rag_api.services.reranking import TokenOverlapReranker, get_reranker
 
 router = APIRouter()
 
@@ -42,4 +50,74 @@ def debug_retrieve(
             )
             for match in matches
         ],
+    )
+
+
+@router.get(
+    "/documents/{document_id}/chunks",
+    response_model=DebugDocumentChunksResponse,
+    summary="Inspect persisted chunks for a document",
+)
+def debug_document_chunks(
+    document_id: str, session: Session = Depends(get_db_session)
+) -> DebugDocumentChunksResponse:
+    document = session.get(Document, document_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    chunks = list(
+        session.scalars(
+            select(DocumentChunk)
+            .where(DocumentChunk.document_id == document_id)
+            .order_by(DocumentChunk.chunk_index.asc())
+        )
+    )
+    return DebugDocumentChunksResponse(
+        document_id=document.id,
+        document_title=document.title,
+        document_filename=document.original_filename,
+        chunk_count=len(chunks),
+        chunks=[
+            DebugDocumentChunk(
+                chunk_id=chunk.id,
+                document_id=chunk.document_id,
+                document_title=document.title,
+                document_filename=document.original_filename,
+                chunk_index=chunk.chunk_index,
+                page_start=chunk.page_start,
+                page_end=chunk.page_end,
+                heading=chunk.heading,
+                text=chunk.text,
+                token_estimate=chunk.token_estimate,
+                embedding_dimensions=chunk.embedding_dimensions,
+            )
+            for chunk in chunks
+        ],
+    )
+
+
+@router.post(
+    "/rerank",
+    response_model=DebugRerankResponse,
+    summary="Inspect reranker scores for explicit passages",
+)
+def debug_rerank(payload: DebugRerankRequest) -> DebugRerankResponse:
+    reranker = get_reranker()
+    try:
+        scores = reranker.score(payload.query, payload.passages)
+    except Exception:
+        reranker = TokenOverlapReranker()
+        scores = reranker.score(payload.query, payload.passages)
+
+    ranked_results = [
+        DebugRerankResult(index=index, text=text, rerank_score=score)
+        for index, (text, score) in enumerate(
+            zip(payload.passages, scores, strict=True)
+        )
+    ]
+    ranked_results.sort(key=lambda item: (-item.rerank_score, item.index))
+    return DebugRerankResponse(
+        query=payload.query,
+        reranker=type(reranker).__name__,
+        results=ranked_results,
     )

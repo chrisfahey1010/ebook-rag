@@ -2,6 +2,11 @@ from ebook_rag_api.schemas.document import DocumentSummary, DocumentUploadRespon
 from ebook_rag_api.schemas.ingestion import IngestionJobSummary, IngestionStatusResponse
 from ebook_rag_api.schemas.qa import QACitation, QARequest, QAResponse
 from ebook_rag_api.schemas.retrieval import (
+    DebugDocumentChunk,
+    DebugDocumentChunksResponse,
+    DebugRerankRequest,
+    DebugRerankResponse,
+    DebugRerankResult,
     RetrievalMatch,
     RetrievalSearchRequest,
     RetrievalSearchResponse,
@@ -15,6 +20,11 @@ __all__ = [
     "QACitation",
     "QARequest",
     "QAResponse",
+    "DebugDocumentChunk",
+    "DebugDocumentChunksResponse",
+    "DebugRerankRequest",
+    "DebugRerankResponse",
+    "DebugRerankResult",
     "RetrievalMatch",
     "RetrievalSearchRequest",
     "RetrievalSearchResponse",

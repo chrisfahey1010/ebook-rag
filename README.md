@@ -128,6 +128,8 @@ Current limitations:
 - `POST /api/retrieval/search`
 - `POST /api/qa/ask`
 - `POST /api/debug/retrieve`
+- `GET /api/debug/documents/{document_id}/chunks`
+- `POST /api/debug/rerank`
 
 Upload registers the PDF, computes its SHA-256 checksum, stores the file locally, extracts per-page text with PyMuPDF, builds paragraph-aware chunks with page spans and token estimates, generates embeddings, persists the records, and returns document plus ingestion status metadata.
 
@@ -141,7 +143,7 @@ Provider selection is environment-driven. Embeddings, reranking, and answer gene
 
 `POST /api/qa/ask` now accepts `include_trace=true` to expose the selected context window, cited evidence, prompt snapshot, provider name, and timing breakdown used for answer generation.
 
-Debug retrieval exposes the ranked candidate list directly so the frontend can show what the retriever selected before answer generation, including dense and rerank score breakdowns.
+Debug retrieval exposes the ranked candidate list directly so the frontend can show what the retriever selected before answer generation, including dense and rerank score breakdowns. Additional debug routes now expose persisted document chunks and standalone reranker scoring so chunking, retrieval, and rerank behavior can be inspected separately during tuning.
 
 ## Evaluation
 

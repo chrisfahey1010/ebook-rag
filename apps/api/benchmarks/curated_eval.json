@@ -36,6 +36,13 @@
           "expected_citation_pages": [4]
         },
         {
+          "question": "What should the crew do before leaving camp and after a rocky traverse?",
+          "expected_supported": true,
+          "expected_answer_contains": ["charge the rover battery", "inspect the rover wheels"],
+          "expected_citation_pages": [1, 2],
+          "citation_match_mode": "all"
+        },
+        {
           "question": "What does the handbook say about whale migration routes?",
           "expected_supported": false,
           "expected_citation_pages": []
@@ -75,6 +82,13 @@
           "expected_supported": true,
           "expected_answer_contains": ["pause the approach"],
           "expected_citation_pages": [3]
+        },
+        {
+          "question": "What should the crew confirm before ignition and after landing?",
+          "expected_supported": true,
+          "expected_answer_contains": ["inspect the heat shield", "inspect the hull seals"],
+          "expected_citation_pages": [1, 5],
+          "citation_match_mode": "all"
         },
         {
           "question": "What does the manual say about coral reef temperatures?",
@@ -122,6 +136,13 @@
           "expected_supported": true,
           "expected_answer_contains": ["team should move the skiff"],
           "expected_citation_pages": [5]
+        },
+        {
+          "question": "What should tagging crews do before boarding and where should spare tags go?",
+          "expected_supported": true,
+          "expected_answer_contains": ["label every sample bag", "dry pouch"],
+          "expected_citation_pages": [4],
+          "citation_match_mode": "all"
         }
       ]
     },
@@ -158,6 +179,13 @@
           "expected_supported": true,
           "expected_answer_contains": ["after dusk"],
           "expected_citation_pages": [5]
+        },
+        {
+          "question": "What should workers check before loading fruit bins and where should the wax be stored?",
+          "expected_supported": true,
+          "expected_answer_contains": ["inspect the pallet straps", "cool interior shelf"],
+          "expected_citation_pages": [3, 4],
+          "citation_match_mode": "all"
         }
       ]
     },
@@ -200,6 +228,54 @@
           "expected_supported": true,
           "expected_answer_contains": ["move the top drawers first"],
           "expected_citation_pages": [5]
+        },
+        {
+          "question": "What should happen to fragile folders at intake and what writing tool may researchers use at the tables?",
+          "expected_supported": true,
+          "expected_answer_contains": ["padded shelf", "issued pencils"],
+          "expected_citation_pages": [1, 3],
+          "citation_match_mode": "all"
+        }
+      ]
+    },
+    {
+      "filename": "expedition-briefing.pdf",
+      "pages": [
+        "Camp departure\n\nBefore the convoy leaves base, confirm the satchel radios are charged and record the odometer reading on the route board. Seal the water assay kit before loading it into the lead truck.",
+        "Trail checkpoints\n\nAt the ridge checkpoint, compare the compass bearing with the printed map and note any missing marker flags. If fog closes in, stop the convoy and wait for the forward scout to return.",
+        "Specimen handling\n\nEvery mineral tray should be labeled with the site code and collector initials before it reaches the sorting table. Store the wrapped reference samples in the padded crate away from the fuel cans.",
+        "Evening closeout\n\nAfter camp is reestablished, archive the route notes, recharge the satchel radios, and inspect the brake dust around the trailer couplings before the night watch begins."
+      ],
+      "questions": [
+        {
+          "question": "What should be confirmed before the convoy leaves base?",
+          "expected_supported": true,
+          "expected_answer_contains": ["satchel radios are charged"],
+          "expected_citation_pages": [1]
+        },
+        {
+          "question": "What should happen if fog closes in at the ridge checkpoint?",
+          "expected_supported": true,
+          "expected_answer_contains": ["stop the convoy"],
+          "expected_citation_pages": [2]
+        },
+        {
+          "question": "How should mineral trays be labeled and where should the wrapped reference samples go?",
+          "expected_supported": true,
+          "expected_answer_contains": ["site code", "padded crate"],
+          "expected_citation_pages": [3],
+          "citation_match_mode": "all"
+        },
+        {
+          "question": "What should the team do after camp is reestablished?",
+          "expected_supported": true,
+          "expected_answer_contains": ["archive the route notes"],
+          "expected_citation_pages": [4]
+        },
+        {
+          "question": "What does the briefing say about glacier drilling permits?",
+          "expected_supported": false,
+          "expected_citation_pages": []
         }
       ]
     }

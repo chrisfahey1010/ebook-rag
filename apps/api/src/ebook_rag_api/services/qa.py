@@ -11,13 +11,13 @@ from sqlalchemy.orm import Session
 from ebook_rag_api.core.config import get_settings
 from ebook_rag_api.services.retrieval import ChunkSearchMatch, normalize_query, search_chunks
 from ebook_rag_api.services.text import (
-    STOPWORDS,
     TOKEN_RE,
     contains_normalized_phrase,
     tokenize_terms,
 )
 
-SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
+SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+CLAUSE_SPLIT_RE = re.compile(r"(?<=[,;:])\s+|\s+(?:and|but|while|then)\s+", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -43,6 +43,14 @@ class GeneratedAnswer:
     answer_text: str
     supported: bool
     citations: list[RetrievedChunkContext]
+
+
+@dataclass(frozen=True)
+class SentenceCandidate:
+    sentence: str
+    context: RetrievedChunkContext
+    score: float
+    terms: set[str]
 
 
 @dataclass(frozen=True)
@@ -80,42 +88,33 @@ class ExtractiveAnswerProvider:
             return _unsupported_answer()
 
         question_terms = _tokenize(question)
-        best_sentence = ""
-        best_context: RetrievedChunkContext | None = None
-        best_score = 0.0
-
-        for context in contexts:
-            for raw_sentence in SENTENCE_SPLIT_RE.split(context.text):
-                sentence = raw_sentence.strip()
-                if not sentence:
-                    continue
-                sentence_terms = _tokenize(sentence)
-                if not sentence_terms:
-                    continue
-                overlap = len(question_terms & sentence_terms)
-                if overlap == 0:
-                    continue
-
-                lexical_score = overlap / max(len(question_terms), 1)
-                added_term_bonus = len(sentence_terms - STOPWORDS) / max(len(sentence_terms), 1)
-                combined_score = (
-                    lexical_score
-                    + added_term_bonus * 0.1
-                    + max(context.score, 0.0) * 0.15
-                )
-                if combined_score > best_score:
-                    best_score = combined_score
-                    best_sentence = sentence
-                    best_context = context
-
-        if best_context is None or best_score < 0.2:
+        sentence_candidates = _build_sentence_candidates(
+            question=question,
+            question_terms=question_terms,
+            contexts=contexts,
+        )
+        if not sentence_candidates or sentence_candidates[0].score < 0.2:
             return _unsupported_answer()
 
-        answer_text = best_sentence if best_sentence.endswith((".", "!", "?")) else f"{best_sentence}."
+        best_candidate = sentence_candidates[0]
+        selected_candidates = [best_candidate]
+        if _question_needs_multi_sentence_answer(question):
+            second_candidate = _select_complementary_sentence(
+                candidates=sentence_candidates[1:],
+                selected_candidates=selected_candidates,
+                question_terms=question_terms,
+            )
+            if second_candidate is not None:
+                selected_candidates.append(second_candidate)
+
+        answer_text = " ".join(
+            sentence if sentence.endswith((".", "!", "?")) else f"{sentence}."
+            for sentence in [candidate.sentence for candidate in selected_candidates]
+        )
         citations = select_evidence_citations(
             answer_text=answer_text,
             contexts=contexts,
-            primary_context=best_context,
+            primary_context=best_candidate.context,
         )
 
         return GeneratedAnswer(answer_text=answer_text, supported=True, citations=citations)
@@ -305,7 +304,11 @@ def assemble_answer_contexts(
         return []
 
     question_terms = _tokenize(question)
-    ranked_contexts = _rank_contexts_for_selection(question_terms=question_terms, contexts=contexts)
+    ranked_contexts = _rank_contexts_for_selection(
+        question=question,
+        question_terms=question_terms,
+        contexts=contexts,
+    )
     selected: list[RetrievedChunkContext] = []
     consumed_chunk_ids: set[str] = set()
     covered_terms: set[str] = set()
@@ -431,7 +434,11 @@ def _adjacent_context_sort_key(
     candidate_terms = _tokenize(candidate.text)
     added_question_terms = len((candidate_terms - base_terms) & question_terms)
     shared_terms = len(candidate_terms & base_terms)
-    return (float(added_question_terms), float(shared_terms), candidate.score)
+    return (
+        float(added_question_terms),
+        float(_normalized_term_overlap(question_terms, candidate_terms)),
+        float(shared_terms),
+    )
 
 
 def _adjacent_context_is_useful(
@@ -446,11 +453,29 @@ def _adjacent_context_is_useful(
     candidate_terms = _tokenize(candidate.text)
     if (candidate_terms - base_terms) & question_terms:
         return True
+    if _contains_question_phrase_tokens(question_terms=question_terms, text=candidate.text):
+        return True
     return len(base_terms & candidate_terms) >= 3 and bool(candidate_terms & question_terms)
 
 
 def _estimate_tokens(text: str) -> int:
     return max(1, len(TOKEN_RE.findall(text)))
+
+
+def _normalized_term_overlap(question_terms: set[str], context_terms: set[str]) -> float:
+    if not question_terms:
+        return 0.0
+    return len(question_terms & context_terms) / len(question_terms)
+
+
+def _contains_question_phrase_tokens(question_terms: set[str], text: str) -> bool:
+    if len(question_terms) < 2:
+        return False
+    normalized_text = [token.lower() for token in TOKEN_RE.findall(text)]
+    return any(
+        left in question_terms and right in question_terms
+        for left, right in zip(normalized_text, normalized_text[1:], strict=False)
+    )
 
 
 def _jaccard_similarity(left: set[str], right: set[str]) -> float:
@@ -464,6 +489,17 @@ def _jaccard_similarity(left: set[str], right: set[str]) -> float:
 
 def _tokenize(text: str) -> set[str]:
     return tokenize_terms(text, drop_stopwords=True)
+
+
+def _split_sentences(text: str) -> list[str]:
+    normalized_text = re.sub(r"\s*\n+\s*", " ", text).strip()
+    if not normalized_text:
+        return []
+    return [
+        sentence.strip()
+        for sentence in SENTENCE_SPLIT_RE.split(normalized_text)
+        if sentence.strip()
+    ]
 
 
 def build_qa_prompt(question: str, contexts: list[RetrievedChunkContext]) -> str:
@@ -550,12 +586,15 @@ def select_evidence_citations(
     )
     citations: list[RetrievedChunkContext] = []
     seen_chunk_ids: set[str] = set()
-    for _, context in ranked:
+    best_ranked_score = ranked[0][0] if ranked else 0.0
+    for score, context in ranked:
         if context.chunk_id in seen_chunk_ids:
+            continue
+        if citations and score < best_ranked_score - 0.75:
             continue
         citations.append(context)
         seen_chunk_ids.add(context.chunk_id)
-        if len(citations) == 3:
+        if len(citations) == 2:
             break
 
     if citations:
@@ -570,44 +609,172 @@ def _build_evidence_excerpt(
     answer_text: str,
     context: RetrievedChunkContext,
 ) -> RetrievedChunkContext:
-    sentences = [
-        sentence.strip()
-        for sentence in SENTENCE_SPLIT_RE.split(context.text)
-        if sentence.strip()
-    ]
+    sentences = _split_sentences(context.text)
     if not sentences:
         return context
 
     answer_terms = _tokenize(answer_text)
-    best_sentence = max(
-        sentences,
-        key=lambda sentence: (
-            len(answer_terms & _tokenize(sentence)),
-            contains_normalized_phrase(answer_text, sentence),
-            len(sentence),
-        ),
+    candidate_spans = _build_candidate_spans(sentences)
+    best_span = max(
+        candidate_spans,
+        key=lambda span: _evidence_span_sort_key(answer_terms=answer_terms, answer_text=answer_text, span=span),
     )
-    if len(answer_terms & _tokenize(best_sentence)) == 0:
+    if len(answer_terms & _tokenize(best_span)) == 0:
         return context
-    return replace(context, text=best_sentence)
+    trimmed_span = _trim_span_to_support(answer_text=answer_text, span=best_span)
+    return replace(context, text=trimmed_span)
+
+
+def _build_candidate_spans(sentences: list[str]) -> list[str]:
+    spans = list(sentences)
+    for index in range(len(sentences) - 1):
+        spans.append(f"{sentences[index]} {sentences[index + 1]}")
+    return spans
+
+
+def _evidence_span_sort_key(
+    *,
+    answer_terms: set[str],
+    answer_text: str,
+    span: str,
+) -> tuple[float, float, float, float]:
+    span_terms = _tokenize(span)
+    overlap = len(answer_terms & span_terms)
+    normalized_overlap = _normalized_term_overlap(answer_terms, span_terms)
+    phrase_match = 1.0 if contains_normalized_phrase(answer_text, span) else 0.0
+    # Prefer narrower spans when support is otherwise similar.
+    brevity_bonus = 1 / max(len(span_terms), 1)
+    return (float(overlap), normalized_overlap, phrase_match, brevity_bonus)
+
+
+def _trim_span_to_support(*, answer_text: str, span: str) -> str:
+    answer_terms = _tokenize(answer_text)
+    clauses = [clause.strip(" ,;:") for clause in CLAUSE_SPLIT_RE.split(span) if clause.strip(" ,;:")]
+    if len(clauses) <= 1:
+        return span
+
+    clause_scores = [
+        (
+            len(answer_terms & _tokenize(clause)),
+            contains_normalized_phrase(answer_text, clause),
+            -len(_tokenize(clause)),
+            clause,
+        )
+        for clause in clauses
+    ]
+    best_score, phrase_match, _, best_clause = max(clause_scores, key=lambda item: item[:3])
+    if best_score == 0 and not phrase_match:
+        return span
+    best_index = clauses.index(best_clause)
+    if best_index > 0:
+        previous_clause = clauses[best_index - 1]
+        previous_overlap = len(answer_terms & _tokenize(previous_clause))
+        if previous_overlap > 0 and len(_tokenize(previous_clause)) <= 3:
+            return f"{previous_clause}, {best_clause}"
+    return best_clause
 
 
 def _rank_contexts_for_selection(
     *,
+    question: str,
     question_terms: set[str],
     contexts: list[RetrievedChunkContext],
 ) -> list[RetrievedChunkContext]:
-    def sort_key(context: RetrievedChunkContext) -> tuple[float, float, float, int, int]:
-        term_overlap = len(question_terms & _tokenize(context.text))
+    def sort_key(
+        context: RetrievedChunkContext,
+    ) -> tuple[float, float, float, float, float, float, float]:
+        context_terms = _tokenize(context.text)
+        term_overlap = len(question_terms & context_terms)
+        normalized_overlap = _normalized_term_overlap(question_terms, context_terms)
+        term_precision = (
+            len(question_terms & context_terms) / max(len(context_terms), 1)
+            if context_terms
+            else 0.0
+        )
+        phrase_match = 1.0 if contains_normalized_phrase(question, context.text) else 0.0
+        token_cost = max(context.token_estimate, _estimate_tokens(context.text), 1)
         return (
             float(term_overlap),
-            context.score,
+            normalized_overlap,
+            term_precision,
+            phrase_match,
+            context.lexical_score,
             context.rerank_score,
-            -context.page_start,
-            -context.chunk_index,
+            -float(token_cost),
         )
 
     return sorted(contexts, key=sort_key, reverse=True)
+
+
+def _build_sentence_candidates(
+    *,
+    question: str,
+    question_terms: set[str],
+    contexts: list[RetrievedChunkContext],
+) -> list[SentenceCandidate]:
+    candidates: list[SentenceCandidate] = []
+    for context in contexts:
+        for sentence in _split_sentences(context.text):
+            if not sentence:
+                continue
+            sentence_terms = _tokenize(sentence)
+            if not sentence_terms:
+                continue
+            overlap = len(question_terms & sentence_terms)
+            if overlap == 0:
+                continue
+
+            lexical_score = overlap / max(len(question_terms), 1)
+            precision = overlap / max(len(sentence_terms), 1)
+            phrase_bonus = 0.2 if contains_normalized_phrase(question, sentence) else 0.0
+            combined_score = (
+                lexical_score
+                + precision * 0.35
+                + phrase_bonus
+                + max(context.score, 0.0) * 0.15
+            )
+            candidates.append(
+                SentenceCandidate(
+                    sentence=sentence,
+                    context=context,
+                    score=combined_score,
+                    terms=sentence_terms,
+                )
+            )
+
+    candidates.sort(
+        key=lambda candidate: (
+            -candidate.score,
+            -len(question_terms & candidate.terms),
+            candidate.context.page_start,
+            candidate.context.chunk_index,
+        )
+    )
+    return candidates
+
+
+def _question_needs_multi_sentence_answer(question: str) -> bool:
+    lowered = question.lower()
+    return " and " in lowered or "both " in lowered
+
+
+def _select_complementary_sentence(
+    *,
+    candidates: list[SentenceCandidate],
+    selected_candidates: list[SentenceCandidate],
+    question_terms: set[str],
+) -> SentenceCandidate | None:
+    covered_terms = set().union(*(candidate.terms & question_terms for candidate in selected_candidates))
+    for candidate in candidates:
+        if any(candidate.sentence == selected.sentence for selected in selected_candidates):
+            continue
+        added_terms = (candidate.terms & question_terms) - covered_terms
+        if not added_terms and candidate.score < selected_candidates[0].score * 0.85:
+            continue
+        if candidate.score < 0.2:
+            continue
+        return candidate
+    return None
 
 
 def _is_same_location_as_existing(
