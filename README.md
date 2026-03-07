@@ -50,7 +50,7 @@ Postgres will be available on `localhost:5432` with:
 
 ### 2. Run the API
 
-From [`apps/api`](/home/chris/dev/ebook-rag/apps/api):
+From [`apps/api`](/home/chris/repos/ebook-rag/apps/api):
 
 ```bash
 export DATABASE_URL=postgresql+psycopg://ebook_rag:ebook_rag@localhost:5432/ebook_rag
@@ -71,7 +71,7 @@ curl http://localhost:8000/health
 
 ### 3. Run the web app
 
-From [`apps/web`](/home/chris/dev/ebook-rag/apps/web):
+From [`apps/web`](/home/chris/repos/ebook-rag/apps/web):
 
 ```bash
 npm install
@@ -130,20 +130,14 @@ Debug retrieval exposes the ranked candidate list directly so the frontend can s
 
 ## Evaluation
 
-Run the sample retrieval and citation benchmark from [`apps/api`](/home/chris/dev/ebook-rag/apps/api):
+Run the sample retrieval and citation benchmark from [`apps/api`](/home/chris/repos/ebook-rag/apps/api):
 
 ```bash
 uv run python scripts/run_eval.py
 ```
 
-This uses [`sample_eval.json`](/home/chris/dev/ebook-rag/apps/api/benchmarks/sample_eval.json) to upload a small set of synthetic PDFs, ask benchmark questions, and print retrieval hit rate, citation hit rate, support accuracy, answer match rate, and average latency.
+This uses [`sample_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/sample_eval.json) to upload a small set of synthetic PDFs, ask benchmark questions, and print retrieval hit rate, citation hit rate, support accuracy, answer match rate, and average latency.
 
-## Next implementation plan
+## Implementation plan
 
-The project has reached the first end-to-end product milestone: upload -> ingest -> retrieve -> answer in both the API and the browser UI. The next work should close the remaining quality and observability gaps from the project spec.
-
-### 1. Improve retrieval quality further
-
-- run the benchmark again to measure the new reranked baseline
-- replace or augment the simple local reranker with a stronger model-backed reranker
-- optionally add lexical retrieval after reranking so improvements can be evaluated in isolation
+The active project plan now lives in [`IMPLEMENTATION_PLAN.md`](/home/chris/repos/ebook-rag/IMPLEMENTATION_PLAN.md).
