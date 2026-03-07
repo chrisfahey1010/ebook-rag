@@ -13,8 +13,10 @@ from ebook_rag_api.services.text import (
     contains_normalized_phrase,
     extract_anchor_terms,
     extract_constraint_terms,
+    metadata_noise_score,
     normalize_query_text,
     normalized_token_sequence,
+    query_run_bonus,
     tokenize_terms,
 )
 
@@ -230,6 +232,7 @@ def lexical_overlap_score(query: str, text: str, heading: str | None = None) -> 
         len(constraint_overlap) / len(passage_terms) if constraint_overlap else 0.0
     )
     phrase_bonus = 0.15 if contains_query_phrase(query, searchable_text) else 0.0
+    query_run_match_bonus = query_run_bonus(query, searchable_text, max_bonus=0.2)
     heading_bonus = 0.1 if heading and (query_terms & tokenize_for_search(heading)) else 0.0
     anchor_bonus = (
         anchor_coverage * 0.35
@@ -237,13 +240,17 @@ def lexical_overlap_score(query: str, text: str, heading: str | None = None) -> 
         + _ordered_anchor_pair_bonus(query, searchable_text)
     )
     constraint_bonus = constraint_coverage * 0.35 + constraint_precision * 0.08
-    return (
+    metadata_penalty = metadata_noise_score(searchable_text) * 0.18
+    return max(
+        0.0,
         coverage * 0.32
         + precision * 0.08
         + phrase_bonus
+        + query_run_match_bonus
         + heading_bonus
         + anchor_bonus
         + constraint_bonus
+        - metadata_penalty,
     )
 
 
@@ -304,11 +311,18 @@ def fuse_candidates(
             term_document_frequency=term_document_frequency,
             candidate_count=max(len(candidate_term_sets), 1),
         )
-        raw_hybrid_scores[chunk_id] = (
+        raw_hybrid_scores[chunk_id] = max(
+            0.0,
             dense_component
             + lexical_component
             + specificity_bonus * 0.3
             + rarity_bonus * 0.25
+            + query_run_bonus(
+                query,
+                f"{chunks_by_id[chunk_id].heading or ''} {chunks_by_id[chunk_id].text}".strip(),
+                max_bonus=0.2,
+            )
+            - metadata_noise_score(chunks_by_id[chunk_id].text) * 0.3,
         )
 
     max_hybrid_score = max(raw_hybrid_scores.values(), default=1.0)
@@ -414,6 +428,35 @@ def rerank_matches(
             + (rerank_score * settings.retrieval_rerank_weight),
         )
         for candidate, rerank_score in zip(fused_candidates, rerank_scores, strict=True)
+    ]
+    matches = [
+        ChunkSearchMatch(
+            chunk=match.chunk,
+            dense_score=match.dense_score,
+            lexical_score=match.lexical_score,
+            hybrid_score=match.hybrid_score,
+            rerank_score=match.rerank_score,
+            score=max(
+                0.0,
+                match.score
+                + min(
+                    1.0,
+                    lexical_overlap_score(
+                        query=query,
+                        text=match.chunk.text,
+                        heading=match.chunk.heading,
+                    ),
+                )
+                * 0.18
+                + query_run_bonus(
+                    query,
+                    f"{match.chunk.heading or ''} {match.chunk.text}".strip(),
+                    max_bonus=0.16,
+                )
+                - metadata_noise_score(match.chunk.text) * 0.25,
+            ),
+        )
+        for match in matches
     ]
     matches.sort(
         key=lambda item: (

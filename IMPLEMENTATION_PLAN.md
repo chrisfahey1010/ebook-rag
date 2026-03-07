@@ -34,7 +34,7 @@ The main gap is that several critical pieces are still baseline implementations:
 - ingestion is still synchronous, even though status and reprocessing APIs from the spec are now in place
 - evaluation now includes saved JSON/Markdown benchmark artifacts, baseline comparison, a broader curated local fixture, and additional debug routes, but citation precision still drops on some multi-part questions
 - the new long-form `hells_angels.pdf` benchmark now exposes additional long-document weaknesses in named-entity retrieval, exact-page citation precision, and unsupported-answer rejection that the synthetic fixture does not catch
-- the latest long-document tuning pass improved answer support and citation hit rate on the `hells_angels.pdf` benchmark, but unsupported-answer rejection and front-matter-heavy citation localization are still below target
+- the latest long-document tuning pass improved unsupported-answer rejection and reduced metadata/front-matter confusion on the `hells_angels.pdf` benchmark, but exact-page citation localization and some page-local fact questions are still below target
 
 ## Planning principles
 
@@ -145,11 +145,13 @@ Once the remaining provider-layer documentation is in place, retrieval quality s
     - require support for each facet of a composite question instead of answering from the strongest partial match
     - boost distinctive query-term coverage and rare-term matches in lexical retrieval, fusion, and fallback reranking for long-document fact questions
     - expand extractive answer selection to tolerate abbreviated split sentences and score wider evidence spans when facts cross sentence boundaries
+    - penalize metadata/front-matter-heavy matches and boost exact multi-term query runs during retrieval/context selection
+    - tighten unsupported-answer rejection for broad topical questions on long books using stronger distinctive-term support checks
   - remaining:
     - tune diversity/selection behavior against benchmarks instead of heuristics alone
     - continue improving citation precision beyond the current selected-context vs cited-evidence split
     - improve long-document retrieval for named entities and low-frequency facts revealed by the real-book benchmark
-    - tighten unsupported-answer rejection for broad topical questions on long books without suppressing valid fact answers
+    - improve answer/citation selection for date-specific and page-local fact questions that already retrieve the right neighborhood
 
 #### Why this is the second milestone
 
@@ -369,11 +371,16 @@ The best next coding slice is:
    - partial progress:
      - distinctive-term-aware lexical/rerank scoring is now in place
      - answer support and citation hit rate improved materially on the current benchmark
+     - metadata/front-matter-heavy false positives are reduced
    - remaining:
      - front-matter-heavy documents still mislocalize some answers to early pages
      - some fact questions still retrieve the right neighborhood but select the wrong sentence
-2. tighten unsupported-answer rejection on long documents so obviously out-of-scope questions stop returning semantically adjacent sentences
-   - this is still open; the current long-form benchmark can still answer an out-of-scope topical question incorrectly
+     - exact-page/date localization is still weak for some early-book facts
+2. improve answer and citation selection for the remaining long-document misses
+   - prioritize:
+     - the `When did the original article appear in The Nation?` case
+     - the Monterey Peninsula opening-scene recall case
+     - the Rodger nickname case
 3. keep expanding the real-document benchmark set alongside the synthetic fixture so tuning does not overfit to one style of test data
 
-That sequence keeps the regression tooling in the loop, uses the new long-form benchmark to surface realistic retrieval failures, and focuses the next work on the highest-signal quality gaps instead of shifting to new product surface area.
+That sequence keeps the regression tooling in the loop, uses the long-form benchmark to surface realistic retrieval failures, and focuses the next work on the remaining citation-precision and page-local fact gaps instead of shifting to new product surface area.

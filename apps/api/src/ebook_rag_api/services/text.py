@@ -61,6 +61,22 @@ NON_ANCHOR_TERMS = {
     "write",
 }
 
+METADATA_TERMS = {
+    "copyright",
+    "edition",
+    "hardcover",
+    "isbn",
+    "library",
+    "paperback",
+    "print",
+    "printed",
+    "publish",
+    "publisher",
+    "renew",
+    "reserv",
+    "rights",
+}
+
 
 def normalize_query_text(text: str) -> str:
     return WHITESPACE_RE.sub(" ", text).strip()
@@ -168,3 +184,54 @@ def extract_constraint_terms(text: str) -> set[str]:
             constraint_terms.add(normalized)
 
     return constraint_terms
+
+
+def longest_matching_query_run(
+    query: str,
+    text: str,
+    *,
+    drop_stopwords: bool = True,
+    max_run_length: int = 5,
+) -> int:
+    query_terms = normalized_token_sequence(query, drop_stopwords=drop_stopwords)
+    text_sequence = normalized_token_sequence(text, drop_stopwords=drop_stopwords)
+    if len(query_terms) < 2 or len(text_sequence) < 2:
+        return 0
+
+    normalized_text = " ".join(text_sequence)
+    longest_run = 0
+    upper_bound = min(len(query_terms), max_run_length)
+    for run_length in range(upper_bound, 1, -1):
+        for index in range(len(query_terms) - run_length + 1):
+            phrase = " ".join(query_terms[index : index + run_length])
+            if phrase and phrase in normalized_text:
+                return run_length
+        longest_run = max(longest_run, run_length - 1)
+    return 0
+
+
+def query_run_bonus(
+    query: str,
+    text: str,
+    *,
+    min_run_length: int = 2,
+    max_bonus: float = 0.24,
+    step: float = 0.08,
+) -> float:
+    longest_run = longest_matching_query_run(query, text)
+    if longest_run < min_run_length:
+        return 0.0
+    return min(max_bonus, (longest_run - min_run_length + 1) * step)
+
+
+def metadata_noise_score(text: str) -> float:
+    tokens = normalized_token_sequence(text)
+    if not tokens:
+        return 0.0
+
+    metadata_matches = sum(1 for token in tokens if token in METADATA_TERMS)
+    if metadata_matches == 0:
+        return 0.0
+
+    ratio = metadata_matches / len(tokens)
+    return min(1.0, ratio * 4 + (0.2 if metadata_matches >= 2 else 0.0))

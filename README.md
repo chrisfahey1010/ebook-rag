@@ -104,11 +104,13 @@ Current implementation includes:
 - answer context assembly with near-duplicate suppression, adjacent-chunk expansion, and token-budgeting
 - shared query/evidence term normalization for lexical retrieval and extractive QA matching
 - long-document retrieval tuning that adds distinctive-term-aware lexical/rerank scoring and rarity-aware candidate fusion
+- metadata-aware retrieval penalties and exact-query-run boosts to reduce front-matter-heavy false positives on long books
 - pluggable reranker providers with token-overlap fallback, local cross-encoder support, and an OpenAI-compatible adapter
 - grounded question answering with citations
 - composite-question answer synthesis that requires support for each requested facet
 - extractive answer selection that can use adjacent-sentence spans and rejects weakly supported semantic neighbors more aggressively
 - extractive answer selection that can bridge abbreviated/split sentences like `Hunter S. Thompson` and score up to three-sentence evidence spans
+- extractive QA scoring that adds lightweight answer-type cues for date/count/location questions while filtering metadata-like evidence more aggressively
 - sentence-level evidence excerpts for returned citations
 - per-answer-sentence citation attribution instead of mirroring the whole selected context window
 - pluggable QA providers, including a local extractive fallback and an OpenAI-compatible adapter
@@ -121,8 +123,8 @@ Current limitations:
 
 - PostgreSQL vector storage now follows the configured embedding dimension, but changing dimensions requires running migrations and reprocessing existing documents
 - context assembly is still heuristic even though answer traces now separate selected context from cited evidence
-- the long-document benchmark now has better fact recall and citation hit rate, but front-matter-heavy books still expose failures in exact-page citation precision and author/metadata disambiguation
-- unsupported-answer rejection on long books is still not reliable enough; broad topical questions can still match semantically adjacent passages instead of returning unsupported
+- the long-document benchmark now has better unsupported-answer rejection and less metadata/front-matter confusion, but it still misses some exact-page citation targets and page-local fact questions on long books
+- date-specific and nickname-specific questions in the long-document benchmark can still retrieve the right neighborhood but choose the wrong sentence or citation page
 - the default benchmark fixture now covers more retrieval failure modes, but it is still synthetic and should keep expanding toward harder multi-page citation coverage cases
 
 ## API snapshot

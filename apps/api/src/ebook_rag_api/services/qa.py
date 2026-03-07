@@ -16,7 +16,10 @@ from ebook_rag_api.services.text import (
     contains_normalized_phrase,
     extract_anchor_terms,
     extract_constraint_terms,
+    longest_matching_query_run,
+    metadata_noise_score,
     normalized_token_sequence,
+    query_run_bonus,
     tokenize_terms,
 )
 
@@ -733,7 +736,7 @@ def _rank_contexts_for_selection(
 
     def sort_key(
         context: RetrievedChunkContext,
-    ) -> tuple[float, float, float, float, float, float, float, float]:
+    ) -> tuple[float, float, float, float, float, float, float, float, float, float, float]:
         context_terms = _tokenize(context.text)
         term_overlap = len(question_terms & context_terms)
         anchor_overlap = len(anchor_terms & context_terms)
@@ -745,6 +748,8 @@ def _rank_contexts_for_selection(
             else 0.0
         )
         phrase_match = 1.0 if contains_normalized_phrase(question, context.text) else 0.0
+        query_run_match = query_run_bonus(question, context.text, max_bonus=0.2)
+        metadata_penalty = metadata_noise_score(context.text)
         token_cost = max(context.token_estimate, _estimate_tokens(context.text), 1)
         return (
             float(constraint_overlap),
@@ -753,8 +758,10 @@ def _rank_contexts_for_selection(
             normalized_overlap,
             term_precision,
             phrase_match,
+            query_run_match,
             context.lexical_score,
             context.rerank_score,
+            -metadata_penalty,
             -float(token_cost),
         )
 
@@ -843,6 +850,7 @@ def _build_sentence_candidates(
             constraint_terms = extract_constraint_terms(question)
             anchor_overlap = len(anchor_terms & sentence_terms)
             constraint_overlap = len(constraint_terms & sentence_terms)
+            metadata_penalty = metadata_noise_score(sentence_span)
 
             lexical_score = overlap / max(len(question_terms), 1)
             precision = overlap / max(len(sentence_terms), 1)
@@ -861,10 +869,13 @@ def _build_sentence_candidates(
                 )
                 + precision * 0.35
                 + phrase_bonus
+                + query_run_bonus(question, sentence_span, max_bonus=0.24)
                 + _ordered_term_bonus(question, sentence_span)
+                + _answer_type_bonus(question, sentence_span)
                 + max(context.score, 0.0) * 0.15
                 + (0.1 if anchor_overlap else 0.0)
                 + (0.08 if constraint_overlap else 0.0)
+                - metadata_penalty * 0.25
             )
             candidates.append(
                 SentenceCandidate(
@@ -950,6 +961,12 @@ def _select_best_candidate_for_facet(
             continue
         anchor_matches = len(candidate.terms & facet.anchor_terms)
         constraint_matches = len(candidate.terms & facet.constraint_terms)
+        if (
+            metadata_noise_score(candidate.sentence) >= 0.35
+            and anchor_matches < _required_anchor_matches(facet.anchor_terms)
+            and constraint_matches < _required_constraint_matches(facet.constraint_terms)
+        ):
+            continue
         added_terms = len((candidate.terms & facet.terms) - covered_terms)
         duplicate_penalty = 0.0 if added_terms else -0.2
         scored_candidates.append(
@@ -1012,8 +1029,11 @@ def _score_sentence_against_text(
         )
         + precision * 0.35
         + phrase_bonus
+        + query_run_bonus(prompt_text, candidate.sentence, max_bonus=0.24)
         + _ordered_term_bonus(prompt_text, candidate.sentence)
+        + _answer_type_bonus(prompt_text, candidate.sentence)
         + max(candidate.context.score, 0.0) * 0.15
+        - metadata_noise_score(candidate.sentence) * 0.25
     )
 
 
@@ -1159,6 +1179,21 @@ def _answer_has_sufficient_support(
             long_constraint_terms = _long_constraint_terms(facet.constraint_terms)
             if long_constraint_terms and not (matched_constraint_terms & long_constraint_terms):
                 return False
+            distinctive_terms = _distinctive_support_terms(facet)
+            matched_distinctive_terms = set().union(
+                *(candidate.terms & distinctive_terms for candidate in matched_candidates)
+            )
+            if distinctive_terms and len(matched_distinctive_terms) < min(2, len(distinctive_terms)):
+                return False
+            if (
+                len(distinctive_terms) >= 2
+                and max(
+                    longest_matching_query_run(facet.text, candidate.sentence)
+                    for candidate in matched_candidates
+                )
+                < 2
+            ):
+                return False
 
     return True
 
@@ -1207,3 +1242,46 @@ def _facet_is_topic_probe(facet: QuestionFacet) -> bool:
 
 def _long_constraint_terms(constraint_terms: set[str]) -> set[str]:
     return {term for term in constraint_terms if len(term) >= 6}
+
+
+def _distinctive_support_terms(facet: QuestionFacet) -> set[str]:
+    return {
+        term
+        for term in (facet.anchor_terms | facet.constraint_terms)
+        if len(term) >= 5 or any(character.isdigit() for character in term)
+    }
+
+
+def _answer_type_bonus(question: str, text: str) -> float:
+    lowered_question = question.lower()
+    lowered_text = text.lower()
+    bonus = 0.0
+
+    if lowered_question.startswith("when "):
+        if re.search(
+            r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+            r"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|"
+            r"dec(?:ember)?)\b",
+            lowered_text,
+        ) or re.search(r"\b\d{4}\b", lowered_text):
+            bonus += 0.24
+        elif re.search(r"\b\d+\b", lowered_text):
+            bonus += 0.12
+
+    if lowered_question.startswith("how many"):
+        if re.search(r"\b\d+\b", lowered_text):
+            bonus += 0.22
+
+    if lowered_question.startswith("where "):
+        if re.search(r"\b(?:in|at|from|to|toward|towards|near|into|onto)\s+[A-Z]", text):
+            bonus += 0.12
+        if re.search(r"\b[A-Z][a-z]+,\s+[A-Z][a-z]+\b", text):
+            bonus += 0.08
+
+    if "nickname" in lowered_question:
+        if re.search(r"\b[A-Z][a-z]+ the [A-Z][a-z]+\b", text):
+            bonus += 0.2
+        elif '"' in text or "'" in text:
+            bonus += 0.1
+
+    return bonus

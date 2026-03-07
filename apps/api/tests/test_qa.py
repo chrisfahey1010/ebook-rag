@@ -693,3 +693,47 @@ def test_assemble_answer_contexts_prefers_direct_evidence_over_broader_summary()
     )
 
     assert selected[0].chunk_id == "chunk-2"
+
+
+def test_assemble_answer_contexts_deprioritizes_metadata_front_matter() -> None:
+    contexts = [
+        RetrievedChunkContext(
+            chunk_id="chunk-1",
+            document_id="doc-1",
+            document_title="Book",
+            document_filename="book.pdf",
+            chunk_index=0,
+            page_start=1,
+            page_end=1,
+            text="Copyright 1994, 1995 by Hunter S. Thompson. All rights reserved. Paperback edition.",
+            token_estimate=12,
+            score=0.98,
+            lexical_score=0.82,
+            rerank_score=0.98,
+        ),
+        RetrievedChunkContext(
+            chunk_id="chunk-2",
+            document_id="doc-1",
+            document_title="Book",
+            document_filename="book.pdf",
+            chunk_index=1,
+            page_start=186,
+            page_end=186,
+            text=(
+                "Hunter S. Thompson is a freelance writer from San Francisco, Aspen, "
+                "and points east. A native of Louisville, Kentucky, he began writing "
+                "as a sports columnist."
+            ),
+            token_estimate=28,
+            score=0.92,
+            lexical_score=0.74,
+            rerank_score=0.92,
+        ),
+    ]
+
+    selected = assemble_answer_contexts(
+        question="Where was Hunter Thompson a native of?",
+        contexts=contexts,
+    )
+
+    assert selected[0].chunk_id == "chunk-2"

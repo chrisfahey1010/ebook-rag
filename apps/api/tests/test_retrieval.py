@@ -276,6 +276,53 @@ def test_retrieval_prefers_exact_anchor_terms_for_named_entity_facts(
     assert "1965" in payload["matches"][0]["text"]
 
 
+def test_retrieval_penalizes_metadata_front_matter_for_exact_fact_questions(
+    client: TestClient, pdf_factory
+) -> None:
+    upload_response = client.post(
+        "/api/documents/upload",
+        files={
+            "file": (
+                "book.pdf",
+                pdf_factory(
+                    [
+                        (
+                            "Copyright 1994, 1995 by Hunter S. Thompson. "
+                            "All rights reserved. Paperback edition. "
+                            * 40
+                        ),
+                        (
+                            "HUNTER S. THOMPSON is a freelance writer from San Francisco, "
+                            "Aspen, and points east. A native of Louisville, Kentucky, "
+                            "he began writing as a sports columnist."
+                        ),
+                    ]
+                ),
+                "application/pdf",
+            )
+        },
+    )
+
+    assert upload_response.status_code == 201
+
+    response = client.post(
+        "/api/retrieval/search",
+        json={
+            "query": "Where was Hunter Thompson a native of?",
+            "document_id": upload_response.json()["document"]["id"],
+            "top_k": 3,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["matches"]
+    assert "louisville, kentucky" in payload["matches"][0]["text"].lower()
+    assert payload["matches"][0]["page_end"] == 2
+    if len(payload["matches"]) > 1:
+        assert payload["matches"][0]["score"] > payload["matches"][1]["score"]
+
+
 def test_debug_rerank_returns_ranked_scores_for_explicit_passages(
     client: TestClient,
 ) -> None:
