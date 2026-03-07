@@ -147,3 +147,24 @@ def extract_anchor_terms(text: str) -> set[str]:
             anchor_terms.add(normalized)
 
     return anchor_terms or fallback_terms
+
+
+def extract_constraint_terms(text: str) -> set[str]:
+    constraint_terms: set[str] = set()
+
+    for raw_token in TOKEN_RE.findall(text):
+        lowered = raw_token.lower()
+        if lowered in STOPWORDS:
+            continue
+        normalized = normalize_term(lowered)
+        if len(normalized) <= 1 or normalized in STOPWORDS:
+            continue
+        if any(character.isdigit() for character in raw_token):
+            constraint_terms.add(normalized)
+            continue
+        if normalized in NON_ANCHOR_TERMS:
+            continue
+        if raw_token[:1].islower() and len(normalized) >= 4:
+            constraint_terms.add(normalized)
+
+    return constraint_terms

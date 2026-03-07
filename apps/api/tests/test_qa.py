@@ -385,6 +385,52 @@ def test_extractive_provider_can_answer_from_adjacent_sentence_span() -> None:
     assert answer.citations[0].page_start == 186
 
 
+def test_extractive_provider_prefers_constraint_term_support_over_name_only_overlap() -> None:
+    provider = ExtractiveAnswerProvider()
+    contexts = [
+        RetrievedChunkContext(
+            chunk_id="chunk-1",
+            document_id="doc-1",
+            document_title="Book",
+            document_filename="book.pdf",
+            chunk_index=1,
+            page_start=1,
+            page_end=1,
+            text="Hunter Thompson Copyright renewed 1994, 1995 by Hunter S. Thompson.",
+            token_estimate=12,
+            score=0.97,
+            rerank_score=0.97,
+        ),
+        RetrievedChunkContext(
+            chunk_id="chunk-2",
+            document_id="doc-1",
+            document_title="Book",
+            document_filename="book.pdf",
+            chunk_index=2,
+            page_start=186,
+            page_end=186,
+            text=(
+                "HUNTER THOMPSON is a free-lance writer from San Francisco, Aspen and "
+                "points east. A native of Louisville, Kentucky, he began writing as a "
+                "sports columnist in Florida."
+            ),
+            token_estimate=28,
+            score=0.93,
+            rerank_score=0.93,
+        ),
+    ]
+
+    answer = provider.generate_answer(
+        question="Where was Hunter Thompson a native of?",
+        contexts=contexts,
+    )
+
+    assert answer.supported is True
+    assert "louisville, kentucky" in answer.answer_text.lower()
+    assert answer.citations
+    assert answer.citations[0].page_start == 186
+
+
 def test_assemble_answer_contexts_skips_irrelevant_adjacent_chunks() -> None:
     contexts = [
         RetrievedChunkContext(

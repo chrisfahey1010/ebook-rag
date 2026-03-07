@@ -428,3 +428,57 @@ def test_retrieval_lexical_matching_handles_simple_inflection_changes(
     assert payload["matches"][0]["page_start"] == 1
     assert "deploy the parachute" in payload["matches"][0]["text"].lower()
     assert payload["matches"][0]["lexical_score"] > 0
+
+
+def test_retrieval_prefers_chunk_with_distinctive_fact_terms_over_generic_mentions(
+    client: TestClient, pdf_factory, monkeypatch
+) -> None:
+    upload = client.post(
+        "/api/documents/upload",
+        files={
+            "file": (
+                "history.pdf",
+                pdf_factory(
+                    [
+                        (
+                            "Preface\n\nThe idea for this book came from Carey McWilliams, "
+                            "editor of The Nation, who asked me to write an article on "
+                            "motorcycle gangs. The article appeared in The Nation in April 1965."
+                        ),
+                        (
+                            "Later reflections\n\nIt was not until my article on motorcycles "
+                            "appeared in The Nation that they really believed I had spent time "
+                            "with the gang."
+                        ),
+                    ]
+                ),
+                "application/pdf",
+            )
+        },
+    )
+    assert upload.status_code == 201
+
+    class _ZeroEmbeddingProvider:
+        dimensions = get_settings().embedding_dimensions
+
+        def embed_texts(self, texts: list[str]) -> list[list[float]]:
+            return [[0.0] * self.dimensions for _ in texts]
+
+    monkeypatch.setattr(
+        "ebook_rag_api.services.retrieval.get_embedding_provider",
+        lambda: _ZeroEmbeddingProvider(),
+    )
+
+    response = client.post(
+        "/api/retrieval/search",
+        json={
+            "query": "Who asked Hunter S. Thompson to write the original article on motorcycle gangs?",
+            "top_k": 3,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["matches"]
+    assert payload["matches"][0]["page_start"] == 1
+    assert "carey mcwilliams" in payload["matches"][0]["text"].lower()

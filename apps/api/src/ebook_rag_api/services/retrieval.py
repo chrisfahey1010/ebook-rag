@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from math import log
 
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session, joinedload
@@ -11,6 +12,7 @@ from ebook_rag_api.services.reranking import TokenOverlapReranker, get_reranker
 from ebook_rag_api.services.text import (
     contains_normalized_phrase,
     extract_anchor_terms,
+    extract_constraint_terms,
     normalize_query_text,
     normalized_token_sequence,
     tokenize_terms,
@@ -215,10 +217,18 @@ def lexical_overlap_score(query: str, text: str, heading: str | None = None) -> 
 
     anchor_terms = extract_anchor_terms(query)
     anchor_overlap = anchor_terms & passage_terms
+    constraint_terms = extract_constraint_terms(query)
+    constraint_overlap = constraint_terms & passage_terms
     coverage = len(overlap) / len(query_terms)
     precision = len(overlap) / len(passage_terms)
     anchor_coverage = len(anchor_overlap) / len(anchor_terms) if anchor_terms else 0.0
     anchor_precision = len(anchor_overlap) / len(passage_terms) if anchor_overlap else 0.0
+    constraint_coverage = (
+        len(constraint_overlap) / len(constraint_terms) if constraint_terms else 0.0
+    )
+    constraint_precision = (
+        len(constraint_overlap) / len(passage_terms) if constraint_overlap else 0.0
+    )
     phrase_bonus = 0.15 if contains_query_phrase(query, searchable_text) else 0.0
     heading_bonus = 0.1 if heading and (query_terms & tokenize_for_search(heading)) else 0.0
     anchor_bonus = (
@@ -226,12 +236,14 @@ def lexical_overlap_score(query: str, text: str, heading: str | None = None) -> 
         + anchor_precision * 0.1
         + _ordered_anchor_pair_bonus(query, searchable_text)
     )
+    constraint_bonus = constraint_coverage * 0.35 + constraint_precision * 0.08
     return (
-        coverage * 0.45
-        + precision * 0.1
+        coverage * 0.32
+        + precision * 0.08
         + phrase_bonus
         + heading_bonus
         + anchor_bonus
+        + constraint_bonus
     )
 
 
@@ -256,6 +268,15 @@ def fuse_candidates(
     lexical_scores = {chunk.id: score for chunk, score in lexical_matches}
     chunks_by_id = {chunk.id: chunk for chunk, _ in dense_matches}
     chunks_by_id.update({chunk.id: chunk for chunk, _ in lexical_matches})
+    query_terms = tokenize_for_search(query)
+    candidate_term_sets = {
+        chunk_id: tokenize_for_search(f"{chunk.heading or ''} {chunk.text}".strip())
+        for chunk_id, chunk in chunks_by_id.items()
+    }
+    term_document_frequency = {
+        term: sum(1 for terms in candidate_term_sets.values() if term in terms)
+        for term in query_terms
+    }
 
     raw_hybrid_scores: dict[str, float] = {}
     for chunk_id in chunks_by_id:
@@ -277,7 +298,18 @@ def fuse_candidates(
                 heading=chunks_by_id[chunk_id].heading,
             ),
         )
-        raw_hybrid_scores[chunk_id] = dense_component + lexical_component + specificity_bonus * 0.35
+        rarity_bonus = _query_term_rarity_bonus(
+            query_terms=query_terms,
+            passage_terms=candidate_term_sets.get(chunk_id, set()),
+            term_document_frequency=term_document_frequency,
+            candidate_count=max(len(candidate_term_sets), 1),
+        )
+        raw_hybrid_scores[chunk_id] = (
+            dense_component
+            + lexical_component
+            + specificity_bonus * 0.3
+            + rarity_bonus * 0.25
+        )
 
     max_hybrid_score = max(raw_hybrid_scores.values(), default=1.0)
     candidates = [
@@ -334,6 +366,26 @@ def _ordered_anchor_pair_bonus(query: str, text: str) -> float:
     if pair_overlap == 0:
         return 0.0
     return min(0.2, pair_overlap / len(anchor_pairs) * 0.2)
+
+
+def _query_term_rarity_bonus(
+    *,
+    query_terms: set[str],
+    passage_terms: set[str],
+    term_document_frequency: dict[str, int],
+    candidate_count: int,
+) -> float:
+    matched_terms = query_terms & passage_terms
+    if not matched_terms:
+        return 0.0
+
+    rarity_sum = 0.0
+    for term in matched_terms:
+        document_frequency = max(term_document_frequency.get(term, 0), 1)
+        rarity_sum += log((candidate_count + 1) / document_frequency)
+
+    normalization = max(len(query_terms), 1)
+    return min(1.0, rarity_sum / normalization)
 
 
 def rerank_matches(

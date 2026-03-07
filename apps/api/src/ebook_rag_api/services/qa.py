@@ -15,6 +15,8 @@ from ebook_rag_api.services.text import (
     TOKEN_RE,
     contains_normalized_phrase,
     extract_anchor_terms,
+    extract_constraint_terms,
+    normalized_token_sequence,
     tokenize_terms,
 )
 
@@ -60,6 +62,7 @@ class QuestionFacet:
     text: str
     terms: set[str]
     anchor_terms: set[str]
+    constraint_terms: set[str]
 
 
 @dataclass(frozen=True)
@@ -519,6 +522,9 @@ def _split_sentences(text: str) -> list[str]:
             sentence = f"{pending_prefix} {sentence}".strip()
             pending_prefix = ""
             tokens = TOKEN_RE.findall(sentence)
+        if tokens and len(tokens[-1]) == 1:
+            pending_prefix = sentence
+            continue
         if len(tokens) <= 2 and any(len(token) == 1 for token in tokens):
             pending_prefix = sentence
             continue
@@ -669,6 +675,8 @@ def _build_candidate_spans(sentences: list[str]) -> list[str]:
     spans = list(sentences)
     for index in range(len(sentences) - 1):
         spans.append(f"{sentences[index]} {sentences[index + 1]}")
+    for index in range(len(sentences) - 2):
+        spans.append(f"{sentences[index]} {sentences[index + 1]} {sentences[index + 2]}")
     return spans
 
 
@@ -721,6 +729,7 @@ def _rank_contexts_for_selection(
     contexts: list[RetrievedChunkContext],
 ) -> list[RetrievedChunkContext]:
     anchor_terms = extract_anchor_terms(question)
+    constraint_terms = extract_constraint_terms(question)
 
     def sort_key(
         context: RetrievedChunkContext,
@@ -728,6 +737,7 @@ def _rank_contexts_for_selection(
         context_terms = _tokenize(context.text)
         term_overlap = len(question_terms & context_terms)
         anchor_overlap = len(anchor_terms & context_terms)
+        constraint_overlap = len(constraint_terms & context_terms)
         normalized_overlap = _normalized_term_overlap(question_terms, context_terms)
         term_precision = (
             len(question_terms & context_terms) / max(len(context_terms), 1)
@@ -737,6 +747,7 @@ def _rank_contexts_for_selection(
         phrase_match = 1.0 if contains_normalized_phrase(question, context.text) else 0.0
         token_cost = max(context.token_estimate, _estimate_tokens(context.text), 1)
         return (
+            float(constraint_overlap),
             float(anchor_overlap),
             float(term_overlap),
             normalized_overlap,
@@ -762,6 +773,7 @@ def _build_question_facets(question: str) -> list[QuestionFacet]:
                 text=normalized_question,
                 terms=base_terms,
                 anchor_terms=anchor_terms,
+                constraint_terms=extract_constraint_terms(normalized_question),
             )
         ]
 
@@ -776,6 +788,7 @@ def _build_question_facets(question: str) -> list[QuestionFacet]:
                 text=normalized_question,
                 terms=base_terms,
                 anchor_terms=anchor_terms,
+                constraint_terms=extract_constraint_terms(normalized_question),
             )
         ]
 
@@ -795,6 +808,7 @@ def _build_question_facets(question: str) -> list[QuestionFacet]:
                 text=facet_text,
                 terms=facet_terms,
                 anchor_terms=extract_anchor_terms(facet_text),
+                constraint_terms=extract_constraint_terms(facet_text),
             )
         )
 
@@ -803,6 +817,7 @@ def _build_question_facets(question: str) -> list[QuestionFacet]:
             text=normalized_question,
             terms=base_terms,
             anchor_terms=anchor_terms,
+            constraint_terms=extract_constraint_terms(normalized_question),
         )
     ]
 
@@ -825,7 +840,9 @@ def _build_sentence_candidates(
             if overlap == 0:
                 continue
             anchor_terms = extract_anchor_terms(question)
+            constraint_terms = extract_constraint_terms(question)
             anchor_overlap = len(anchor_terms & sentence_terms)
+            constraint_overlap = len(constraint_terms & sentence_terms)
 
             lexical_score = overlap / max(len(question_terms), 1)
             precision = overlap / max(len(sentence_terms), 1)
@@ -837,10 +854,17 @@ def _build_sentence_candidates(
                     matched_anchor_terms=anchor_terms & sentence_terms,
                     candidate_terms=sentence_terms,
                 )
+                + _constraint_support_score(
+                    constraint_terms=constraint_terms,
+                    matched_constraint_terms=constraint_terms & sentence_terms,
+                    candidate_terms=sentence_terms,
+                )
                 + precision * 0.35
                 + phrase_bonus
+                + _ordered_term_bonus(question, sentence_span)
                 + max(context.score, 0.0) * 0.15
                 + (0.1 if anchor_overlap else 0.0)
+                + (0.08 if constraint_overlap else 0.0)
             )
             candidates.append(
                 SentenceCandidate(
@@ -914,6 +938,7 @@ def _select_best_candidate_for_facet(
             prompt_text=facet.text,
             prompt_terms=facet.terms,
             anchor_terms=facet.anchor_terms,
+            constraint_terms=facet.constraint_terms,
             candidate=candidate,
         )
         if facet_score < 0.2:
@@ -924,11 +949,13 @@ def _select_best_candidate_for_facet(
         ):
             continue
         anchor_matches = len(candidate.terms & facet.anchor_terms)
+        constraint_matches = len(candidate.terms & facet.constraint_terms)
         added_terms = len((candidate.terms & facet.terms) - covered_terms)
         duplicate_penalty = 0.0 if added_terms else -0.2
         scored_candidates.append(
             (
                 (
+                    float(constraint_matches),
                     float(anchor_matches),
                     facet_score,
                     float(added_terms),
@@ -949,6 +976,7 @@ def _select_best_candidate_for_facet(
             -item[0][2],
             -item[0][3],
             -item[0][4],
+            -item[0][5],
             item[1].context.page_start,
             item[1].context.chunk_index,
         )
@@ -961,6 +989,7 @@ def _score_sentence_against_text(
     prompt_text: str,
     prompt_terms: set[str],
     anchor_terms: set[str],
+    constraint_terms: set[str],
     candidate: SentenceCandidate,
 ) -> float:
     overlap = len(prompt_terms & candidate.terms)
@@ -976,8 +1005,14 @@ def _score_sentence_against_text(
             matched_anchor_terms=anchor_terms & candidate.terms,
             candidate_terms=candidate.terms,
         )
+        + _constraint_support_score(
+            constraint_terms=constraint_terms,
+            matched_constraint_terms=constraint_terms & candidate.terms,
+            candidate_terms=candidate.terms,
+        )
         + precision * 0.35
         + phrase_bonus
+        + _ordered_term_bonus(prompt_text, candidate.sentence)
         + max(candidate.context.score, 0.0) * 0.15
     )
 
@@ -1033,6 +1068,21 @@ def _anchor_support_score(
     return coverage * 0.5 + precision * 0.1
 
 
+def _constraint_support_score(
+    *,
+    constraint_terms: set[str],
+    matched_constraint_terms: set[str],
+    candidate_terms: set[str],
+) -> float:
+    if not constraint_terms:
+        return 0.0
+    if not matched_constraint_terms:
+        return 0.0
+    coverage = len(matched_constraint_terms) / len(constraint_terms)
+    precision = len(matched_constraint_terms) / max(len(candidate_terms), 1)
+    return coverage * 0.45 + precision * 0.08
+
+
 def _required_anchor_matches(anchor_terms: set[str]) -> int:
     if not anchor_terms:
         return 0
@@ -1043,15 +1093,30 @@ def _required_anchor_matches(anchor_terms: set[str]) -> int:
     return max(1, ceil(len(anchor_terms) * 0.5))
 
 
+def _required_constraint_matches(constraint_terms: set[str]) -> int:
+    if not constraint_terms:
+        return 0
+    if len(constraint_terms) <= 2:
+        return 1
+    if len(constraint_terms) == 3:
+        return 2
+    return max(3, ceil(len(constraint_terms) * 0.6))
+
+
 def _candidate_satisfies_anchor_requirement(
     *,
     facet: QuestionFacet,
     candidate: SentenceCandidate,
 ) -> bool:
-    if not facet.anchor_terms:
+    if not facet.anchor_terms and not facet.constraint_terms:
         return True
+    matched_constraint_terms = facet.constraint_terms & candidate.terms
     matched_anchor_terms = facet.anchor_terms & candidate.terms
-    return len(matched_anchor_terms) >= _required_anchor_matches(facet.anchor_terms)
+    if len(matched_anchor_terms) >= _required_anchor_matches(facet.anchor_terms):
+        return True
+    return len(matched_constraint_terms) >= _required_constraint_matches(
+        facet.constraint_terms
+    )
 
 
 def _answer_has_sufficient_support(
@@ -1071,11 +1136,74 @@ def _answer_has_sufficient_support(
         if not matched_candidates:
             return False
         if not facet.anchor_terms:
+            if _facet_overlap_is_too_weak(facet=facet, matched_candidates=matched_candidates):
+                return False
             continue
         matched_anchor_terms = set().union(
             *(candidate.terms & facet.anchor_terms for candidate in matched_candidates)
         )
-        if len(matched_anchor_terms) < _required_anchor_matches(facet.anchor_terms):
+        matched_constraint_terms = set().union(
+            *(candidate.terms & facet.constraint_terms for candidate in matched_candidates)
+        )
+        if (
+            len(matched_anchor_terms) < _required_anchor_matches(facet.anchor_terms)
+            and len(matched_constraint_terms)
+            < _required_constraint_matches(facet.constraint_terms)
+        ):
             return False
+        if _facet_is_topic_probe(facet) and len(matched_constraint_terms) < _required_constraint_matches(
+            facet.constraint_terms
+        ):
+            return False
+        if _facet_is_topic_probe(facet):
+            long_constraint_terms = _long_constraint_terms(facet.constraint_terms)
+            if long_constraint_terms and not (matched_constraint_terms & long_constraint_terms):
+                return False
 
     return True
+
+
+def _facet_overlap_is_too_weak(
+    *,
+    facet: QuestionFacet,
+    matched_candidates: list[SentenceCandidate],
+) -> bool:
+    covered_terms = set().union(*(candidate.terms & facet.terms for candidate in matched_candidates))
+    normalized_overlap = len(covered_terms) / max(len(facet.terms), 1)
+    if normalized_overlap >= 0.5:
+        return False
+    if facet.constraint_terms and covered_terms & facet.constraint_terms:
+        return normalized_overlap < 0.34
+    return True
+
+
+def _ordered_term_bonus(query: str, text: str) -> float:
+    query_terms = normalized_token_sequence(query, drop_stopwords=True)
+    text_terms = normalized_token_sequence(text, drop_stopwords=True)
+    if len(query_terms) < 2 or len(text_terms) < 2:
+        return 0.0
+
+    query_pairs = {
+        (left, right)
+        for left, right in zip(query_terms, query_terms[1:], strict=False)
+        if left != right
+    }
+    if not query_pairs:
+        return 0.0
+    text_pairs = {
+        (left, right)
+        for left, right in zip(text_terms, text_terms[1:], strict=False)
+    }
+    overlap = len(query_pairs & text_pairs)
+    if overlap == 0:
+        return 0.0
+    return min(0.2, overlap / len(query_pairs) * 0.2)
+
+
+def _facet_is_topic_probe(facet: QuestionFacet) -> bool:
+    lowered = facet.text.lower()
+    return " say about " in lowered or lowered.startswith("about ")
+
+
+def _long_constraint_terms(constraint_terms: set[str]) -> set[str]:
+    return {term for term in constraint_terms if len(term) >= 6}
