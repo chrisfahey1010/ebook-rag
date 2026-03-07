@@ -1,5 +1,7 @@
 from pydantic import BaseModel, ConfigDict, Field
 
+from ebook_rag_api.schemas.document import ChunkingConfigSummary
+
 
 class RetrievalSearchRequest(BaseModel):
     query: str = Field(min_length=1)
@@ -41,6 +43,7 @@ class DebugDocumentChunk(BaseModel):
     heading: str | None
     text: str
     token_estimate: int
+    provenance: dict[str, object] | None
     embedding_dimensions: int | None
 
 
@@ -49,6 +52,7 @@ class DebugDocumentChunksResponse(BaseModel):
     document_title: str | None
     document_filename: str
     chunk_count: int
+    chunking_config: ChunkingConfigSummary | None
     chunks: list[DebugDocumentChunk]
 
 

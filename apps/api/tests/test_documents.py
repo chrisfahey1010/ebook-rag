@@ -25,6 +25,12 @@ def test_upload_extracts_pages_and_completes_ingestion(
     assert payload["document"]["status"] == "ready"
     assert payload["document"]["page_count"] == 2
     assert payload["document"]["chunk_count"] >= 1
+    assert payload["document"]["chunking_config"] == {
+        "target_words": 420,
+        "min_words": 180,
+        "overlap_words": 64,
+        "max_heading_words": 12,
+    }
     assert payload["ingestion_status"] == "completed"
     assert payload["ingestion_error"] is None
     assert len(payload["document"]["sha256"]) == 64
@@ -43,6 +49,7 @@ def test_upload_extracts_pages_and_completes_ingestion(
     assert chunks[0].page_end >= 1
     assert all(chunk.token_estimate > 0 for chunk in chunks)
     assert [chunk.chunk_index for chunk in chunks] == list(range(len(chunks)))
+    assert all(chunk.provenance is not None for chunk in chunks)
 
 
 def test_upload_rejects_non_pdf_file(client: TestClient) -> None:
@@ -160,6 +167,7 @@ def test_get_document_returns_extracted_metadata(
     assert payload["status"] == "ready"
     assert payload["page_count"] == 2
     assert payload["chunk_count"] >= 1
+    assert payload["chunking_config"]["target_words"] == 420
 
 
 def test_delete_document_removes_database_records_and_uploaded_file(
@@ -239,6 +247,7 @@ def test_ingestion_status_returns_latest_job(client: TestClient, pdf_factory) ->
     assert payload["document"]["id"] == document_id
     assert payload["ingestion_job"]["status"] == "completed"
     assert payload["ingestion_job"]["document_id"] == document_id
+    assert payload["document"]["chunking_config"]["target_words"] == 420
 
 
 def test_reprocess_document_reruns_ingestion(
@@ -274,6 +283,7 @@ def test_reprocess_document_reruns_ingestion(
     assert payload["document"]["id"] == document_id
     assert payload["document"]["status"] == "ready"
     assert payload["ingestion_job"]["status"] == "completed"
+    assert payload["document"]["chunking_config"]["target_words"] == 420
     with session_factory() as session:
         chunks = list(
             session.scalars(
@@ -286,6 +296,39 @@ def test_reprocess_document_reruns_ingestion(
     assert chunks
     assert all(chunk.embedding_dimensions == 4 for chunk in chunks)
     assert all(chunk.embedding_vector == [1.0, 0.0, 0.0, 0.0] for chunk in chunks)
+
+
+def test_upload_uses_overridden_chunking_environment(
+    client: TestClient, pdf_factory, monkeypatch
+) -> None:
+    monkeypatch.setenv("CHUNK_TARGET_WORDS", "260")
+    monkeypatch.setenv("CHUNK_MIN_WORDS", "120")
+    monkeypatch.setenv("CHUNK_OVERLAP_WORDS", "32")
+    monkeypatch.setenv("CHUNK_MAX_HEADING_WORDS", "8")
+
+    from ebook_rag_api.core.config import get_settings
+
+    get_settings.cache_clear()
+
+    response = client.post(
+        "/api/documents/upload",
+        files={
+            "file": (
+                "sample.pdf",
+                pdf_factory(["Chapter One\n\n" + "alpha " * 180]),
+                "application/pdf",
+            )
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["document"]["chunking_config"] == {
+        "target_words": 260,
+        "min_words": 120,
+        "overlap_words": 32,
+        "max_heading_words": 8,
+    }
 
 
 def test_ingestion_status_returns_not_found_for_unknown_id(client: TestClient) -> None:

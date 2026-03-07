@@ -70,10 +70,12 @@ def test_summarize_results_includes_percentiles_and_unsupported_precision() -> N
         benchmark_name="curated-eval",
         benchmark_path=Path("/tmp/curated.json"),
         top_k=5,
+        chunking_config={"target_words": 420, "min_words": 180, "overlap_words": 64, "max_heading_words": 12},
         results=results,
     )
 
     assert summary["questions"] == 3
+    assert summary["chunking_config"]["target_words"] == 420
     assert summary["retrieval_hit_rate"] == 2 / 3
     assert summary["citation_hit_rate"] == 2 / 3
     assert summary["support_accuracy"] == 2 / 3
@@ -132,6 +134,12 @@ def test_render_markdown_report_includes_comparison_and_failures() -> None:
         "benchmark_path": "/tmp/curated.json",
         "generated_at": "2026-03-07T00:00:00+00:00",
         "top_k": 5,
+        "chunking_config": {
+            "target_words": 420,
+            "min_words": 180,
+            "overlap_words": 64,
+            "max_heading_words": 12,
+        },
         "questions": 2,
         "retrieval_hit_rate": 0.5,
         "citation_hit_rate": 1.0,
@@ -170,6 +178,7 @@ def test_render_markdown_report_includes_comparison_and_failures() -> None:
     report = run_eval.render_markdown_report(summary)
 
     assert "# Benchmark Report: curated-eval" in report
+    assert '"target_words": 420' in report
     assert "Regressions detected: `yes`" in report
     assert "retrieval_hit_rate: `-0.250`" in report
     assert "latency_p95_ms: `+8.000 ms`" in report
@@ -248,3 +257,24 @@ def test_load_benchmark_document_bytes_requires_source() -> None:
         )
         is True
     )
+
+
+def test_resolve_chunking_config_applies_preset_and_overrides() -> None:
+    run_eval = load_run_eval_module()
+    namespace = type(
+        "Args",
+        (),
+        {
+            "chunk_preset": "large",
+            "chunk_target_words": None,
+            "chunk_min_words": 300,
+            "chunk_overlap_words": None,
+            "chunk_max_heading_words": None,
+        },
+    )()
+
+    config = run_eval.resolve_chunking_config(namespace)
+
+    assert config["target_words"] == 640
+    assert config["min_words"] == 300
+    assert config["overlap_words"] == 96

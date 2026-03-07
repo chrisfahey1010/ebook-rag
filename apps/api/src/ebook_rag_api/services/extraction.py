@@ -6,8 +6,9 @@ import fitz
 from sqlalchemy.orm import Session
 
 from ebook_rag_api.models import Document, DocumentPage, IngestionJob
+from ebook_rag_api.core.config import get_settings
 from ebook_rag_api.services.embeddings import get_embedding_provider
-from ebook_rag_api.services.chunking import build_document_chunks
+from ebook_rag_api.services.chunking import ChunkingConfig, build_document_chunks
 
 WHITESPACE_RE = re.compile(r"[ \t]+")
 BLANK_LINE_RE = re.compile(r"\n{3,}")
@@ -179,9 +180,18 @@ def extract_document_pages(file_path: Path) -> tuple[int, list[DocumentPage]]:
 def run_extraction_pipeline(
     session: Session, document: Document, ingestion_job: IngestionJob
 ) -> tuple[Document, IngestionJob]:
+    settings = get_settings()
+    chunking_config = ChunkingConfig(
+        target_words=settings.chunk_target_words,
+        min_words=settings.chunk_min_words,
+        overlap_words=settings.chunk_overlap_words,
+        max_heading_words=settings.chunk_max_heading_words,
+    )
+
     ingestion_job.status = "processing"
     ingestion_job.started_at = datetime.now(UTC)
     document.status = "processing"
+    document.chunking_config = chunking_config.to_dict()
     session.commit()
 
     try:
@@ -201,7 +211,7 @@ def run_extraction_pipeline(
 
     document.chunks.clear()
     session.flush()
-    for chunk in build_document_chunks(document.pages):
+    for chunk in build_document_chunks(document.pages, config=chunking_config):
         document.chunks.append(chunk)
 
     try:

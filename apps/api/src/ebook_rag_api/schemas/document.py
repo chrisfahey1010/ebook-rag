@@ -3,6 +3,13 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 
 
+class ChunkingConfigSummary(BaseModel):
+    target_words: int
+    min_words: int
+    overlap_words: int
+    max_heading_words: int
+
+
 class DocumentSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -14,6 +21,7 @@ class DocumentSummary(BaseModel):
     page_count: int | None
     chunk_count: int
     status: str
+    chunking_config: ChunkingConfigSummary | None
     created_at: datetime
     updated_at: datetime | None
 

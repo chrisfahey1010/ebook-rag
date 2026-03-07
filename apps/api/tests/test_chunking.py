@@ -1,5 +1,5 @@
 from ebook_rag_api.models import DocumentPage
-from ebook_rag_api.services.chunking import build_document_chunks
+from ebook_rag_api.services.chunking import ChunkingConfig, build_document_chunks
 
 
 def test_build_document_chunks_splits_long_paragraph_sets() -> None:
@@ -36,6 +36,8 @@ def test_build_document_chunks_splits_long_paragraph_sets() -> None:
     assert chunks[0].page_start == 1
     assert chunks[-1].page_end == 2
     assert max(chunk.token_estimate for chunk in chunks) > 250
+    assert chunks[0].provenance is not None
+    assert 1 in chunks[0].provenance["source_page_numbers"]
 
 
 def test_build_document_chunks_preserves_section_heading_metadata() -> None:
@@ -61,3 +63,31 @@ def test_build_document_chunks_preserves_section_heading_metadata() -> None:
     assert chunks[0].heading == "Chapter 3"
     assert chunks[0].text.startswith("Chapter 3")
     assert any(chunk.heading == "Epilogue" for chunk in chunks)
+
+
+def test_build_document_chunks_respects_configured_chunk_sizes() -> None:
+    pages = [
+        DocumentPage(
+            page_number=1,
+            raw_text="",
+            normalized_text="\n\n".join(
+                [
+                    "Intro",
+                    "Alpha " * 100,
+                    "Beta " * 100,
+                    "Gamma " * 100,
+                ]
+            ),
+        )
+    ]
+
+    small_chunks = build_document_chunks(
+        pages,
+        config=ChunkingConfig(target_words=120, min_words=80, overlap_words=16),
+    )
+    large_chunks = build_document_chunks(
+        pages,
+        config=ChunkingConfig(target_words=280, min_words=160, overlap_words=16),
+    )
+
+    assert len(small_chunks) > len(large_chunks)

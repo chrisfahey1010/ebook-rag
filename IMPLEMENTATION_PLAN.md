@@ -37,6 +37,8 @@ The main gap is that several critical pieces are still baseline implementations:
 - ingestion is still synchronous, even though status and reprocessing APIs from the spec are now in place
 - evaluation now includes saved JSON/Markdown benchmark artifacts, baseline comparison, a broader curated local fixture, a real-book long-form benchmark, and additional debug routes
 - the remaining quality risk is benchmark breadth rather than the specific long-document misses that were driving recent tuning loops
+- ingestion now persists the chunking configuration used for each document, stores per-chunk provenance metadata for debug inspection, and exposes reprocessing/status controls in the UI
+- chunk sizing is now configurable and benchmarkable through the eval runner, but the chosen defaults are still heuristic rather than benchmark-locked
 
 ## Planning principles
 
@@ -169,7 +171,7 @@ This milestone is now in a good stopping state for V1. Retrieval quality should 
 
 ### Milestone 3: Strengthen ingestion quality and ingestion controls
 
-The ingestion pipeline works, but it is still closer to a synchronous MVP than the system described in the spec.
+This milestone is now in progress with the first implementation slice completed. The ingestion pipeline is more inspectable, but it is still closer to a synchronous MVP than the full system described in the spec.
 
 #### Goals
 
@@ -181,6 +183,10 @@ The ingestion pipeline works, but it is still closer to a synchronous MVP than t
 - completed:
   - `GET /api/ingestion/{document_id}/status`
   - `POST /api/ingestion/{document_id}/reprocess`
+  - persisted per-document chunking configuration used during ingestion
+  - persisted per-chunk provenance metadata for page/paragraph inspection
+  - web UI controls for ingestion status refresh and document reprocessing
+  - eval runner support for chunking presets and overrides
 - remaining:
   - improve text normalization:
     - detect repeated headers/footers where feasible
@@ -188,10 +194,10 @@ The ingestion pipeline works, but it is still closer to a synchronous MVP than t
     - keep page mappings explicit
   - improve chunk metadata:
     - heading or section label when detectable
-    - chunk character span or provenance metadata if useful
+    - consider chunk character-span metadata if page/paragraph provenance proves insufficient
   - revisit chunk sizing:
-    - current chunking is much smaller than the spec target
-    - benchmark a few chunk sizes instead of choosing by intuition
+    - current chunking defaults are still smaller than the spec target
+    - benchmark a few chunk sizes and promote one to the documented default instead of choosing by intuition
   - decide whether ingestion remains synchronous for V1 or moves to background jobs
 
 #### Recommendation
@@ -367,15 +373,16 @@ The project should be considered V1 complete when all of the following are true:
 
 ## Immediate next implementation slice
 
-The best next coding slice is:
+The best next coding slice is now:
 
-1. move to Milestone 3 and strengthen ingestion quality and controls
-   - benchmark chunk sizing against the existing eval fixtures instead of relying on intuition
-   - improve chunk metadata/provenance so headings and page-local spans are easier to inspect and reprocess
-   - decide explicitly whether synchronous ingestion remains the V1 default or whether a background job path is justified
-2. close the remaining Milestone 1 documentation gap
+1. finish the benchmark-driven chunking decision
+   - run the existing eval fixtures across the new chunking presets
+   - choose and document a default based on retrieval/citation/support metrics rather than intuition
+2. continue Milestone 3 normalization/provenance work
+   - tighten heading preservation and page mapping where extraction still loses structure
+   - decide whether paragraph/page provenance is enough or whether character-span metadata is worth the cost
+3. close the remaining Milestone 1/7 documentation gap
    - document supported Ollama and llama.cpp-style OpenAI-compatible presets
-   - make mixed local/remote answer-provider setups explicit in the docs
-3. keep expanding the real-document benchmark set, but treat retrieval work as regression-driven follow-up rather than the main thread
+   - add example `.env` settings for chunking plus mixed local/remote provider setups
 
-That sequence deliberately shifts the project out of the recent retrieval-tuning loop. The current retrieval/QA stack is good enough to unblock the next milestone, while new benchmark coverage still preserves a way to come back if a real regression appears.
+That sequence keeps the project out of an open-ended retrieval-tuning loop while still improving the ingestion layer and making the current system easier to inspect and rerun.

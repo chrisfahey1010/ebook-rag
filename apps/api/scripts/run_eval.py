@@ -61,7 +61,68 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Exit with status 1 when compared metrics regress.",
     )
+    parser.add_argument(
+        "--chunk-preset",
+        choices=("small", "default", "large"),
+        default="default",
+        help="Chunking preset to apply while running the benchmark.",
+    )
+    parser.add_argument(
+        "--chunk-target-words",
+        type=int,
+        help="Override the configured chunk target size in words.",
+    )
+    parser.add_argument(
+        "--chunk-min-words",
+        type=int,
+        help="Override the minimum chunk size in words before splitting.",
+    )
+    parser.add_argument(
+        "--chunk-overlap-words",
+        type=int,
+        help="Override the overlap carried into the next chunk.",
+    )
+    parser.add_argument(
+        "--chunk-max-heading-words",
+        type=int,
+        help="Override the heading detector word-count ceiling.",
+    )
     return parser.parse_args()
+
+
+CHUNKING_PRESETS: dict[str, dict[str, int]] = {
+    "small": {
+        "target_words": 320,
+        "min_words": 140,
+        "overlap_words": 48,
+        "max_heading_words": 12,
+    },
+    "default": {
+        "target_words": 420,
+        "min_words": 180,
+        "overlap_words": 64,
+        "max_heading_words": 12,
+    },
+    "large": {
+        "target_words": 640,
+        "min_words": 260,
+        "overlap_words": 96,
+        "max_heading_words": 14,
+    },
+}
+
+
+def resolve_chunking_config(args: argparse.Namespace) -> dict[str, int]:
+    config = dict(CHUNKING_PRESETS[args.chunk_preset])
+    if args.chunk_target_words is not None:
+        config["target_words"] = args.chunk_target_words
+    if args.chunk_min_words is not None:
+        config["min_words"] = args.chunk_min_words
+    if args.chunk_overlap_words is not None:
+        config["overlap_words"] = args.chunk_overlap_words
+    if args.chunk_max_heading_words is not None:
+        config["max_heading_words"] = args.chunk_max_heading_words
+    return config
 
 
 def create_pdf(page_texts: list[str]) -> bytes:
@@ -192,6 +253,7 @@ def summarize_results(
     benchmark_name: str,
     benchmark_path: Path,
     top_k: int,
+    chunking_config: dict[str, int],
     results: list[dict[str, Any]],
 ) -> dict[str, Any]:
     total_questions = len(results)
@@ -211,6 +273,7 @@ def summarize_results(
         "benchmark_path": str(benchmark_path),
         "generated_at": datetime.now(UTC).isoformat(),
         "top_k": top_k,
+        "chunking_config": chunking_config,
         "questions": total_questions,
         "retrieval_hit_rate": rate(results, "retrieval_hit"),
         "citation_hit_rate": rate(results, "citation_hit"),
@@ -301,6 +364,7 @@ def render_markdown_report(summary: dict[str, Any]) -> str:
         f"- Generated at: `{summary['generated_at']}`",
         f"- Benchmark file: `{summary['benchmark_path']}`",
         f"- Top-k: `{summary['top_k']}`",
+        f"- Chunking config: `{json.dumps(summary['chunking_config'], sort_keys=True)}`",
         f"- Questions: `{summary['questions']}`",
         "",
         "## Metrics",
@@ -390,12 +454,19 @@ def main() -> int:
     args = parse_args()
     benchmark_path = resolve_project_relative_path(args.benchmark)
     benchmark = json.loads(benchmark_path.read_text())
+    chunking_config = resolve_chunking_config(args)
 
     with tempfile.TemporaryDirectory(prefix="ebook-rag-eval-") as temp_dir:
         temp_root = Path(temp_dir)
         os.environ["DATABASE_URL"] = f"sqlite:///{temp_root / 'eval.db'}"
         os.environ["UPLOADS_DIR"] = str(temp_root / "uploads")
         os.environ["MAX_UPLOAD_SIZE_MB"] = "5"
+        os.environ["CHUNK_TARGET_WORDS"] = str(chunking_config["target_words"])
+        os.environ["CHUNK_MIN_WORDS"] = str(chunking_config["min_words"])
+        os.environ["CHUNK_OVERLAP_WORDS"] = str(chunking_config["overlap_words"])
+        os.environ["CHUNK_MAX_HEADING_WORDS"] = str(
+            chunking_config["max_heading_words"]
+        )
 
         from ebook_rag_api.core.config import get_settings
         from ebook_rag_api.db import Base, get_engine, get_session_factory
@@ -496,6 +567,7 @@ def main() -> int:
         benchmark_name=benchmark["name"],
         benchmark_path=benchmark_path,
         top_k=args.top_k,
+        chunking_config=chunking_config,
         results=results,
     )
 

@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./ebook_rag.db"
     uploads_dir: Path = Path("data/uploads")
     max_upload_size_mb: int = 50
+    chunk_target_words: int = 420
+    chunk_min_words: int = 180
+    chunk_overlap_words: int = 64
+    chunk_max_heading_words: int = 12
     embedding_provider: str = "hashing"
     embedding_dimensions: int = 128
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"

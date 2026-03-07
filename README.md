@@ -90,6 +90,7 @@ Current implementation includes:
 - PDF upload, file registration, and PyMuPDF extraction
 - persisted per-page text with repeated header/footer cleanup and page-number stripping
 - larger paragraph-aware chunks with section heading metadata
+- persisted per-document chunking configuration and per-chunk provenance metadata for debug inspection
 - chunk embeddings generated during ingestion
 - ingestion status lookup and document reprocessing endpoints
 - pluggable embedding providers with hashing, local `sentence-transformers`, and OpenAI-compatible adapters
@@ -117,6 +118,7 @@ Current implementation includes:
 - question-aware citation ranking that breaks evidence ties using anchor terms, constraints, answer-type cues, and narrower page spans
 - pluggable QA providers, including a local extractive fallback and an OpenAI-compatible adapter
 - retrieval debug route and browser-side candidate inspector
+- browser-side ingestion status refresh and reprocessing controls
 - an expanded curated eval set for retrieval, unsupported-answer, and citation regression checks
 - Next.js document library, upload flow, QA workspace, citation preview pane, and retrieval inspector
 - root-level docs for local development
@@ -124,6 +126,7 @@ Current implementation includes:
 Current limitations:
 
 - PostgreSQL vector storage now follows the configured embedding dimension, but changing dimensions requires running migrations and reprocessing existing documents
+- chunk sizing is now configurable and benchmarkable, but the default values are still heuristic and not yet locked by a benchmark-backed decision
 - context assembly is still heuristic even though answer traces now separate selected context from cited evidence
 - the long-document benchmark now has better unsupported-answer rejection, less metadata/front-matter confusion, and stronger date-specific citation tie-breaking, but it still misses some exact-page citation targets and page-local fact questions on long books
 - nickname-specific and some page-local/date-specific questions in the long-document benchmark can still retrieve the right neighborhood but choose the wrong sentence or citation page
@@ -146,7 +149,7 @@ Current limitations:
 
 Upload registers the PDF, computes its SHA-256 checksum, stores the file locally, extracts per-page text with PyMuPDF, removes repeated boundary noise such as headers, footers, and standalone page numbers when detectable, builds larger paragraph-aware chunks with page spans, token estimates, and heading metadata, generates embeddings, persists the records, and returns document plus ingestion status metadata.
 
-Reprocessing reruns extraction and embedding generation for an existing document, which is useful after changing embedding models or dimensions.
+Reprocessing reruns extraction and embedding generation for an existing document, which is useful after changing embedding models, embedding dimensions, or chunking settings. Each indexed document now persists the chunking configuration that was used, and debug chunk inspection also includes page/paragraph provenance metadata so reprocessing decisions are easier to reason about.
 
 Retrieval accepts a natural-language query, embeds it, blends dense and lexical candidates, reranks them, and returns ranked matches with document metadata, page spans, dense, lexical, hybrid, rerank, and final scores. The ranking path now gives extra weight to full anchor/constraint matches for low-frequency entity and date questions so generic date mentions are less likely to outrank exact fact passages. If a configured reranker backend fails at runtime, retrieval falls back to the local token-overlap reranker so the request still completes.
 
@@ -168,6 +171,13 @@ uv run python scripts/run_eval.py
 
 This now uses [`curated_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/curated_eval.json) by default to upload a broader curated set of local PDFs, ask benchmark questions, and print retrieval hit rate, citation hit rate, support accuracy, answer match rate, unsupported precision, and latency metrics. Individual questions can also declare `citation_match_mode` so stricter page-coverage expectations can be added over time. The older [`sample_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/sample_eval.json) fixture is still available if you want a smaller smoke test.
 
+The eval runner now also supports chunking presets and explicit chunking overrides so chunk-size choices can be benchmarked directly:
+
+```bash
+uv run python scripts/run_eval.py --chunk-preset large
+uv run python scripts/run_eval.py --chunk-target-words 560 --chunk-min-words 220 --chunk-overlap-words 80
+```
+
 For longer-document tuning, the runner also supports benchmarks that point at a real local PDF via `source_pdf`. The repo now includes [`hells_angels_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/hells_angels_eval.json), which exercises selected questions against the full 186-page [`hells_angels.pdf`](/home/chris/repos/ebook-rag/apps/api/benchmarks/local/hells_angels.pdf):
 
 ```bash
@@ -185,6 +195,17 @@ uv run python scripts/run_eval.py \
 ```
 
 The expanded summary now includes unsupported precision plus P50/P95 latency so retrieval and citation changes can be compared over time.
+
+## Ingestion configuration
+
+Chunking can now be configured through environment variables before ingestion or reprocessing:
+
+- `CHUNK_TARGET_WORDS`
+- `CHUNK_MIN_WORDS`
+- `CHUNK_OVERLAP_WORDS`
+- `CHUNK_MAX_HEADING_WORDS`
+
+The active values are persisted on each document and surfaced in the web UI plus debug routes so you can tell how an existing index was built before deciding to reprocess it.
 
 ## Implementation plan
 

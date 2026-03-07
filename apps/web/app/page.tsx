@@ -14,8 +14,16 @@ type DocumentSummary = {
   page_count: number | null;
   chunk_count: number;
   status: string;
+  chunking_config: ChunkingConfig | null;
   created_at: string;
   updated_at: string | null;
+};
+
+type ChunkingConfig = {
+  target_words: number;
+  min_words: number;
+  overlap_words: number;
+  max_heading_words: number;
 };
 
 type UploadResponse = {
@@ -23,6 +31,21 @@ type UploadResponse = {
   ingestion_job_id: string;
   ingestion_status: string;
   ingestion_error: string | null;
+};
+
+type IngestionJobSummary = {
+  id: string;
+  document_id: string;
+  status: string;
+  error_message: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+};
+
+type IngestionStatusResponse = {
+  document: DocumentSummary;
+  ingestion_job: IngestionJobSummary | null;
 };
 
 type Citation = {
@@ -100,6 +123,13 @@ function formatDocumentLabel(document: DocumentSummary): string {
   return document.title || document.original_filename;
 }
 
+function formatChunkingConfig(config: ChunkingConfig | null): string {
+  if (!config) {
+    return "Not recorded";
+  }
+  return `${config.target_words}w target, ${config.overlap_words}w overlap`;
+}
+
 async function parseApiError(response: Response): Promise<string> {
   try {
     const payload = (await response.json()) as { detail?: string };
@@ -145,7 +175,11 @@ export default function Home() {
   const [retrievalResult, setRetrievalResult] = useState<RetrievalResponse | null>(null);
   const [qaTrace, setQaTrace] = useState<QATrace | null>(null);
   const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
+  const [ingestionStatus, setIngestionStatus] = useState<IngestionStatusResponse | null>(null);
+  const [ingestionError, setIngestionError] = useState<string | null>(null);
   const [isLoadingDocuments, setIsLoadingDocuments] = useState(true);
+  const [isRefreshingIngestion, startRefreshIngestionTransition] = useTransition();
+  const [isReprocessing, startReprocessTransition] = useTransition();
   const [isUploading, startUploadTransition] = useTransition();
   const [isAnswering, startAnswerTransition] = useTransition();
   const [isInspecting, startInspectTransition] = useTransition();
@@ -153,6 +187,14 @@ export default function Home() {
 
   const selectedDocument =
     documents.find((document) => document.id === selectedDocumentId) ?? null;
+
+  function syncDocument(nextDocument: DocumentSummary) {
+    setDocuments((current) =>
+      current.map((document) =>
+        document.id === nextDocument.id ? nextDocument : document,
+      ),
+    );
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -203,6 +245,51 @@ export default function Home() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!selectedDocumentId) {
+      setIngestionStatus(null);
+      setIngestionError(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    startRefreshIngestionTransition(async () => {
+      try {
+        const response = await fetch(
+          `${apiBaseUrl}/api/ingestion/${selectedDocumentId}/status`,
+          {
+            cache: "no-store",
+          },
+        );
+
+        if (!response.ok) {
+          throw new Error(await parseApiError(response));
+        }
+
+        const payload = (await response.json()) as IngestionStatusResponse;
+        if (cancelled) {
+          return;
+        }
+
+        setIngestionStatus(payload);
+        setIngestionError(null);
+        syncDocument(payload.document);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setIngestionError(
+          error instanceof Error ? error.message : "Failed to load ingestion status.",
+        );
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDocumentId]);
+
   function handleUploadSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -234,6 +321,18 @@ export default function Home() {
         const payload = (await response.json()) as UploadResponse;
         setDocuments((current) => [payload.document, ...current]);
         setSelectedDocumentId(payload.document.id);
+        setIngestionStatus({
+          document: payload.document,
+          ingestion_job: {
+            id: payload.ingestion_job_id,
+            document_id: payload.document.id,
+            status: payload.ingestion_status,
+            error_message: payload.ingestion_error,
+            started_at: null,
+            finished_at: null,
+            created_at: payload.document.created_at,
+          },
+        });
         setAnswer(null);
         setQaTrace(null);
         setRetrievalResult(null);
@@ -248,6 +347,73 @@ export default function Home() {
       } catch (error) {
         setUploadError(
           error instanceof Error ? error.message : "Upload failed.",
+        );
+      }
+    });
+  }
+
+  function refreshIngestionStatus() {
+    if (!selectedDocumentId) {
+      return;
+    }
+
+    setIngestionError(null);
+    startRefreshIngestionTransition(async () => {
+      try {
+        const response = await fetch(
+          `${apiBaseUrl}/api/ingestion/${selectedDocumentId}/status`,
+          {
+            cache: "no-store",
+          },
+        );
+
+        if (!response.ok) {
+          throw new Error(await parseApiError(response));
+        }
+
+        const payload = (await response.json()) as IngestionStatusResponse;
+        setIngestionStatus(payload);
+        syncDocument(payload.document);
+      } catch (error) {
+        setIngestionError(
+          error instanceof Error ? error.message : "Failed to refresh ingestion status.",
+        );
+      }
+    });
+  }
+
+  function reprocessSelectedDocument() {
+    if (!selectedDocumentId || !selectedDocument) {
+      return;
+    }
+
+    setIngestionError(null);
+    setLastUploadMessage(null);
+
+    startReprocessTransition(async () => {
+      try {
+        const response = await fetch(
+          `${apiBaseUrl}/api/ingestion/${selectedDocumentId}/reprocess`,
+          {
+            method: "POST",
+          },
+        );
+
+        if (!response.ok) {
+          throw new Error(await parseApiError(response));
+        }
+
+        const payload = (await response.json()) as IngestionStatusResponse;
+        setIngestionStatus(payload);
+        syncDocument(payload.document);
+        setLastUploadMessage(
+          payload.ingestion_job?.status === "completed"
+            ? `Reprocessed ${selectedDocument.original_filename}.`
+            : `Reprocess finished with status ${payload.ingestion_job?.status ?? payload.document.status}.`,
+        );
+      } catch (error) {
+        setIngestionError(
+          error instanceof Error ? error.message : "Reprocess failed.",
         );
       }
     });
@@ -609,10 +775,58 @@ export default function Home() {
                 {selectedDocument ? (
                   <div className="rounded-[1rem] border border-[var(--border)] bg-white/70 px-4 py-3 text-sm text-[var(--muted)]">
                     {selectedDocument.page_count ?? "-"} pages,{" "}
-                    {selectedDocument.chunk_count} chunks
+                    {selectedDocument.chunk_count} chunks,{" "}
+                    {formatChunkingConfig(selectedDocument.chunking_config)}
                   </div>
                 ) : null}
               </div>
+
+              {selectedDocument ? (
+                <div className="mt-6 rounded-[1.25rem] border border-[var(--border)] bg-white/65 p-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+                        Ingestion
+                      </p>
+                      <p className="mt-2 text-sm text-[var(--foreground)]">
+                        Status:{" "}
+                        <span className="font-medium">
+                          {ingestionStatus?.ingestion_job?.status ?? selectedDocument.status}
+                        </span>
+                        {ingestionStatus?.ingestion_job?.error_message
+                          ? ` · ${ingestionStatus.ingestion_job.error_message}`
+                          : ""}
+                      </p>
+                      <p className="mt-1 text-sm text-[var(--muted)]">
+                        Chunking: {formatChunkingConfig(selectedDocument.chunking_config)}
+                      </p>
+                    </div>
+                    <div className="flex flex-col gap-3 sm:flex-row">
+                      <button
+                        type="button"
+                        onClick={refreshIngestionStatus}
+                        disabled={isRefreshingIngestion}
+                        className="rounded-full border border-[var(--border)] bg-white/80 px-4 py-2 text-sm font-medium text-[var(--foreground)] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {isRefreshingIngestion ? "Refreshing..." : "Refresh status"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={reprocessSelectedDocument}
+                        disabled={isReprocessing}
+                        className="rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition hover:bg-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {isReprocessing ? "Reprocessing..." : "Reprocess document"}
+                      </button>
+                    </div>
+                  </div>
+                  {ingestionError ? (
+                    <p className="mt-4 rounded-[1rem] bg-rose-50 px-4 py-3 text-sm text-rose-800">
+                      {ingestionError}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
 
               <form className="mt-6 flex flex-col gap-4" onSubmit={handleQuestionSubmit}>
                 <textarea

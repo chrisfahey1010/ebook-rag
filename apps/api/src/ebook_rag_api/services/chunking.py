@@ -1,16 +1,24 @@
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 from ebook_rag_api.models import DocumentChunk, DocumentPage
 
-TARGET_CHUNK_WORDS = 420
-MIN_CHUNK_WORDS = 180
-OVERLAP_CHUNK_WORDS = 64
-MAX_HEADING_WORDS = 12
+
+@dataclass(frozen=True)
+class ChunkingConfig:
+    target_words: int = 420
+    min_words: int = 180
+    overlap_words: int = 64
+    max_heading_words: int = 12
+
+    def to_dict(self) -> dict[str, int]:
+        return asdict(self)
 
 
 @dataclass
 class PageParagraph:
+    global_index: int
     page_number: int
+    page_paragraph_index: int
     text: str
     is_heading: bool = False
 
@@ -20,24 +28,35 @@ def estimate_token_count(text: str) -> int:
     return max(1, round(words * 1.3))
 
 
-def extract_page_paragraphs(pages: list[DocumentPage]) -> list[PageParagraph]:
+def extract_page_paragraphs(
+    pages: list[DocumentPage], *, config: ChunkingConfig
+) -> list[PageParagraph]:
     paragraphs: list[PageParagraph] = []
+    global_index = 0
     for page in sorted(pages, key=lambda item: item.page_number):
+        page_paragraph_index = 0
         for block in page.normalized_text.split("\n\n"):
             text = block.strip()
             if text:
                 paragraphs.append(
                     PageParagraph(
+                        global_index=global_index,
                         page_number=page.page_number,
+                        page_paragraph_index=page_paragraph_index,
                         text=text,
-                        is_heading=is_heading_block(text),
+                        is_heading=is_heading_block(text, max_heading_words=config.max_heading_words),
                     )
                 )
+                global_index += 1
+                page_paragraph_index += 1
     return paragraphs
 
 
-def build_document_chunks(pages: list[DocumentPage]) -> list[DocumentChunk]:
-    paragraphs = extract_page_paragraphs(pages)
+def build_document_chunks(
+    pages: list[DocumentPage], *, config: ChunkingConfig | None = None
+) -> list[DocumentChunk]:
+    config = config or ChunkingConfig()
+    paragraphs = extract_page_paragraphs(pages, config=config)
     if not paragraphs:
         return []
 
@@ -62,13 +81,13 @@ def build_document_chunks(pages: list[DocumentPage]) -> list[DocumentChunk]:
 
         if (
             current
-            and current_words + paragraph_words > TARGET_CHUNK_WORDS
+            and current_words + paragraph_words > config.target_words
             and _chunk_has_body(current)
-            and current_words >= MIN_CHUNK_WORDS
+            and current_words >= config.min_words
         ):
             chunks.append(_create_chunk(chunk_index, current, active_heading))
             chunk_index += 1
-            current = _overlap_tail(current)
+            current = _overlap_tail(current, overlap_words=config.overlap_words)
             current_words = sum(len(item.text.split()) for item in current)
 
         current.append(paragraph)
@@ -86,17 +105,36 @@ def _create_chunk(
     active_heading: str | None,
 ) -> DocumentChunk:
     text = "\n\n".join(item.text for item in paragraphs)
+    page_numbers = sorted({item.page_number for item in paragraphs})
+    first_paragraph = paragraphs[0]
+    last_paragraph = paragraphs[-1]
     return DocumentChunk(
         chunk_index=chunk_index,
-        page_start=min(item.page_number for item in paragraphs),
-        page_end=max(item.page_number for item in paragraphs),
+        page_start=page_numbers[0],
+        page_end=page_numbers[-1],
         heading=_resolve_heading(paragraphs, active_heading),
         text=text,
         token_estimate=estimate_token_count(text),
+        provenance={
+            "source_page_numbers": page_numbers,
+            "paragraph_count": len(paragraphs),
+            "paragraph_range": {
+                "start": first_paragraph.global_index,
+                "end": last_paragraph.global_index,
+            },
+            "page_paragraph_range": {
+                "start_page": first_paragraph.page_number,
+                "start_index": first_paragraph.page_paragraph_index,
+                "end_page": last_paragraph.page_number,
+                "end_index": last_paragraph.page_paragraph_index,
+            },
+        },
     )
 
 
-def _overlap_tail(paragraphs: list[PageParagraph]) -> list[PageParagraph]:
+def _overlap_tail(
+    paragraphs: list[PageParagraph], *, overlap_words: int
+) -> list[PageParagraph]:
     if not paragraphs:
         return []
 
@@ -107,7 +145,7 @@ def _overlap_tail(paragraphs: list[PageParagraph]) -> list[PageParagraph]:
             continue
         tail.insert(0, paragraph)
         word_count += len(paragraph.text.split())
-        if word_count >= OVERLAP_CHUNK_WORDS:
+        if word_count >= overlap_words:
             break
     return tail
 
@@ -123,13 +161,13 @@ def _resolve_heading(paragraphs: list[PageParagraph], active_heading: str | None
     return active_heading
 
 
-def is_heading_block(text: str) -> bool:
+def is_heading_block(text: str, *, max_heading_words: int) -> bool:
     stripped = text.strip()
     if not stripped or stripped.endswith((".", "!", "?")):
         return False
 
     words = stripped.split()
-    if not 1 <= len(words) <= MAX_HEADING_WORDS:
+    if not 1 <= len(words) <= max_heading_words:
         return False
 
     alpha_words = [word for word in words if any(character.isalpha() for character in word)]

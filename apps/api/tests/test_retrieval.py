@@ -209,10 +209,12 @@ def test_debug_document_chunks_returns_persisted_chunk_metadata(
     assert payload["document_filename"] == "manual.pdf"
     assert payload["chunk_count"] == len(payload["chunks"])
     assert payload["chunk_count"] >= 1
+    assert payload["chunking_config"]["target_words"] == 420
     assert payload["chunks"]
     assert payload["chunks"][0]["chunk_index"] == 0
     assert payload["chunks"][0]["page_start"] == 1
     assert payload["chunks"][0]["token_estimate"] > 0
+    assert 1 in payload["chunks"][0]["provenance"]["source_page_numbers"]
     assert "inspect the seals" in payload["chunks"][0]["text"].lower()
 
 

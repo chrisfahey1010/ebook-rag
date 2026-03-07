@@ -77,6 +77,7 @@ def debug_document_chunks(
         document_title=document.title,
         document_filename=document.original_filename,
         chunk_count=len(chunks),
+        chunking_config=document.chunking_config,
         chunks=[
             DebugDocumentChunk(
                 chunk_id=chunk.id,
@@ -89,6 +90,7 @@ def debug_document_chunks(
                 heading=chunk.heading,
                 text=chunk.text,
                 token_estimate=chunk.token_estimate,
+                provenance=chunk.provenance,
                 embedding_dimensions=chunk.embedding_dimensions,
             )
             for chunk in chunks
