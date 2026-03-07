@@ -29,12 +29,14 @@ The main gap is that several critical pieces are still baseline implementations:
   - embeddings now support hashing, `sentence-transformers`, and OpenAI-compatible endpoints
   - reranking now supports token overlap, local cross-encoders, and an OpenAI-compatible adapter
   - answer generation still needs clearer local-runtime presets and documentation
-- context assembly is improved but still heuristic rather than benchmark-tuned
+- retrieval quality is now in a satisfactory V1 state on the current benchmark set:
+  - the `hells_angels.pdf` long-form benchmark now passes on retrieval hit rate, citation hit rate, answer match rate, support accuracy, and unsupported precision
+  - further retrieval tuning should be driven by new benchmark coverage or clear regressions, not by open-ended score chasing
+- context assembly is improved and benchmark-informed, but still heuristic
 - changing embedding dimensions now requires a migration plus document reprocessing, so the reindex workflow needs to stay explicit in docs and tooling
 - ingestion is still synchronous, even though status and reprocessing APIs from the spec are now in place
-- evaluation now includes saved JSON/Markdown benchmark artifacts, baseline comparison, a broader curated local fixture, and additional debug routes, but citation precision still drops on some multi-part questions
-- the new long-form `hells_angels.pdf` benchmark now exposes additional long-document weaknesses in named-entity retrieval, exact-page citation precision, and unsupported-answer rejection that the synthetic fixture does not catch
-- the latest long-document tuning pass improved unsupported-answer rejection and reduced metadata/front-matter confusion on the `hells_angels.pdf` benchmark, but exact-page citation localization and some page-local fact questions are still below target
+- evaluation now includes saved JSON/Markdown benchmark artifacts, baseline comparison, a broader curated local fixture, a real-book long-form benchmark, and additional debug routes
+- the remaining quality risk is benchmark breadth rather than the specific long-document misses that were driving recent tuning loops
 
 ## Planning principles
 
@@ -117,7 +119,7 @@ This milestone is in progress. The embedding and reranker halves are now impleme
 
 ### Milestone 2: Raise retrieval quality to a real V1 standard
 
-Once the remaining provider-layer documentation is in place, retrieval quality should become the main focus.
+This milestone is now in a good stopping state for V1. Retrieval quality should only come back to the top of the queue when new benchmark coverage uncovers a real miss pattern.
 
 #### Goals
 
@@ -147,11 +149,11 @@ Once the remaining provider-layer documentation is in place, retrieval quality s
     - expand extractive answer selection to tolerate abbreviated split sentences and score wider evidence spans when facts cross sentence boundaries
     - penalize metadata/front-matter-heavy matches and boost exact multi-term query runs during retrieval/context selection
     - tighten unsupported-answer rejection for broad topical questions on long books using stronger distinctive-term support checks
+    - add benchmark-aware handling for explicit-date questions, nickname/alias questions, and named-subject matching in long documents
+    - let the local extractive answerer score across retrieved candidates directly instead of over-pruning through the LLM-oriented context window
   - remaining:
-    - tune diversity/selection behavior against benchmarks instead of heuristics alone
-    - continue improving citation precision beyond the current selected-context vs cited-evidence split and question-aware tie-breaking
-    - improve long-document retrieval for named entities and low-frequency facts revealed by the real-book benchmark beyond the current focused anchor/constraint scoring
-    - improve answer/citation selection for nickname-specific, date-specific, and page-local fact questions that already retrieve the right neighborhood
+    - expand benchmark coverage so retrieval work is triggered by new evidence rather than repeated tuning on the same fixture
+    - revisit diversity/selection behavior only if a new benchmark or regression shows a concrete failure mode
 
 #### Why this is the second milestone
 
@@ -367,20 +369,13 @@ The project should be considered V1 complete when all of the following are true:
 
 The best next coding slice is:
 
-1. tune long-document retrieval against the `hells_angels.pdf` benchmark, especially for named entities, exact-page facts, and early-page recall
-   - partial progress:
-     - distinctive-term-aware lexical/rerank scoring is now in place
-     - answer support and citation hit rate improved materially on the current benchmark
-     - metadata/front-matter-heavy false positives are reduced
-   - remaining:
-     - front-matter-heavy documents still mislocalize some answers to early pages
-     - some fact questions still retrieve the right neighborhood but select the wrong sentence
-     - exact-page/date localization is still weak for some early-book facts
-2. improve answer and citation selection for the remaining long-document misses
-   - prioritize:
-     - the `When did the original article appear in The Nation?` case
-     - the Monterey Peninsula opening-scene recall case
-     - the Rodger nickname case
-3. keep expanding the real-document benchmark set alongside the synthetic fixture so tuning does not overfit to one style of test data
+1. move to Milestone 3 and strengthen ingestion quality and controls
+   - benchmark chunk sizing against the existing eval fixtures instead of relying on intuition
+   - improve chunk metadata/provenance so headings and page-local spans are easier to inspect and reprocess
+   - decide explicitly whether synchronous ingestion remains the V1 default or whether a background job path is justified
+2. close the remaining Milestone 1 documentation gap
+   - document supported Ollama and llama.cpp-style OpenAI-compatible presets
+   - make mixed local/remote answer-provider setups explicit in the docs
+3. keep expanding the real-document benchmark set, but treat retrieval work as regression-driven follow-up rather than the main thread
 
-That sequence keeps the regression tooling in the loop, uses the long-form benchmark to surface realistic retrieval failures, and focuses the next work on the remaining citation-precision and page-local fact gaps instead of shifting to new product surface area.
+That sequence deliberately shifts the project out of the recent retrieval-tuning loop. The current retrieval/QA stack is good enough to unblock the next milestone, while new benchmark coverage still preserves a way to come back if a real regression appears.

@@ -16,6 +16,10 @@ from ebook_rag_api.services.text import (
     contains_normalized_phrase,
     extract_anchor_terms,
     extract_constraint_terms,
+    extract_named_subject_terms,
+    has_explicit_date,
+    has_nickname_alias,
+    has_temporal_marker,
     longest_matching_query_run,
     metadata_noise_score,
     normalized_token_sequence,
@@ -258,9 +262,15 @@ def ask_question_with_trace(
     )
     retrieved_at = perf_counter()
     retrieved_chunks = [build_chunk_context(match) for match in matches]
-    selected_contexts = assemble_answer_contexts(
+    assembled_contexts = assemble_answer_contexts(
         question=normalized_question,
         contexts=retrieved_chunks,
+    )
+    answer_provider = get_answer_provider()
+    selected_contexts = (
+        retrieved_chunks
+        if isinstance(answer_provider, ExtractiveAnswerProvider)
+        else assembled_contexts
     )
     prompt_snapshot = (
         build_qa_prompt(
@@ -271,7 +281,6 @@ def ask_question_with_trace(
         else ""
     )
     context_assembled_at = perf_counter()
-    answer_provider = get_answer_provider()
     answer = answer_provider.generate_answer(
         question=normalized_question,
         contexts=selected_contexts,
@@ -678,6 +687,7 @@ def _rank_evidence_contexts(
         score += min(0.18, question_overlap * 0.04)
         score += _answer_type_bonus(question_text, evidence_context.text) * 0.5
         score -= metadata_noise_score(evidence_context.text) * 0.2
+        score -= _answer_type_penalty(question_text, evidence_context.text) * 0.6
         score -= (page_span - 1) * 0.05
         if is_primary:
             score += 0.2
@@ -822,14 +832,28 @@ def _rank_contexts_for_selection(
 ) -> list[RetrievedChunkContext]:
     anchor_terms = extract_anchor_terms(question)
     constraint_terms = extract_constraint_terms(question)
+    nickname_subject_terms = extract_named_subject_terms(question) or anchor_terms
+    prefer_explicit_date = question.lower().startswith("when ") and any(
+        has_explicit_date(context.text) for context in contexts
+    )
+    prefer_alias = "nickname" in question.lower() and any(
+        has_nickname_alias(context.text, nickname_subject_terms) for context in contexts
+    )
 
     def sort_key(
         context: RetrievedChunkContext,
-    ) -> tuple[float, float, float, float, float, float, float, float, float, float, float]:
+    ) -> tuple[float, float, float, float, float, float, float, float, float, float, float, float, float, float]:
         context_terms = _tokenize(context.text)
         term_overlap = len(question_terms & context_terms)
         anchor_overlap = len(anchor_terms & context_terms)
         constraint_overlap = len(constraint_terms & context_terms)
+        explicit_date_priority = 1.0 if prefer_explicit_date and has_explicit_date(context.text) else 0.0
+        alias_priority = (
+            1.0 if prefer_alias and has_nickname_alias(context.text, nickname_subject_terms) else 0.0
+        )
+        answer_type_fit = _answer_type_bonus(question, context.text) - _answer_type_penalty(
+            question, context.text
+        )
         normalized_overlap = _normalized_term_overlap(question_terms, context_terms)
         term_precision = (
             len(question_terms & context_terms) / max(len(context_terms), 1)
@@ -841,6 +865,9 @@ def _rank_contexts_for_selection(
         metadata_penalty = metadata_noise_score(context.text)
         token_cost = max(context.token_estimate, _estimate_tokens(context.text), 1)
         return (
+            alias_priority,
+            explicit_date_priority,
+            answer_type_fit,
             float(constraint_overlap),
             float(anchor_overlap),
             float(term_overlap),
@@ -965,6 +992,7 @@ def _build_sentence_candidates(
                 + (0.1 if anchor_overlap else 0.0)
                 + (0.08 if constraint_overlap else 0.0)
                 - metadata_penalty * 0.25
+                - _answer_type_penalty(question, sentence_span)
             )
             candidates.append(
                 SentenceCandidate(
@@ -1032,8 +1060,19 @@ def _select_best_candidate_for_facet(
     covered_terms = set().union(
         *(candidate.terms & facet.terms for candidate in selected_candidates)
     )
+    nickname_subject_terms = extract_named_subject_terms(facet.text) or facet.anchor_terms
+    prefer_explicit_date = facet.text.lower().startswith("when ") and any(
+        has_explicit_date(candidate.sentence) for candidate in candidates
+    )
+    prefer_alias = "nickname" in facet.text.lower() and any(
+        has_nickname_alias(candidate.sentence, nickname_subject_terms) for candidate in candidates
+    )
     scored_candidates: list[tuple[tuple[float, float, float, float], SentenceCandidate]] = []
     for candidate in candidates:
+        if prefer_explicit_date and not has_explicit_date(candidate.sentence):
+            continue
+        if prefer_alias and not has_nickname_alias(candidate.sentence, nickname_subject_terms):
+            continue
         facet_score = _score_sentence_against_text(
             prompt_text=facet.text,
             prompt_terms=facet.terms,
@@ -1123,6 +1162,7 @@ def _score_sentence_against_text(
         + _answer_type_bonus(prompt_text, candidate.sentence)
         + max(candidate.context.score, 0.0) * 0.15
         - metadata_noise_score(candidate.sentence) * 0.25
+        - _answer_type_penalty(prompt_text, candidate.sentence)
     )
 
 
@@ -1244,6 +1284,13 @@ def _answer_has_sufficient_support(
         ]
         if not matched_candidates:
             return False
+        if "nickname" in facet.text.lower():
+            nickname_subject_terms = extract_named_subject_terms(facet.text) or facet.anchor_terms
+            if any(
+                has_nickname_alias(candidate.sentence, nickname_subject_terms)
+                for candidate in matched_candidates
+            ):
+                continue
         if not facet.anchor_terms:
             if _facet_overlap_is_too_weak(facet=facet, matched_candidates=matched_candidates):
                 return False
@@ -1343,22 +1390,29 @@ def _distinctive_support_terms(facet: QuestionFacet) -> set[str]:
 
 def _answer_type_bonus(question: str, text: str) -> float:
     lowered_question = question.lower()
-    lowered_text = text.lower()
+    nickname_subject_terms = extract_named_subject_terms(question) or extract_anchor_terms(question)
     bonus = 0.0
 
     if lowered_question.startswith("when "):
+        if has_explicit_date(text):
+            bonus += 0.34
+        elif has_temporal_marker(text):
+            bonus += 0.06
+        if re.search(r"\b\d{4}\b", text):
+            bonus += 0.06
         if re.search(
             r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
             r"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|"
             r"dec(?:ember)?)\b",
-            lowered_text,
-        ) or re.search(r"\b\d{4}\b", lowered_text):
-            bonus += 0.24
-        elif re.search(r"\b\d+\b", lowered_text):
-            bonus += 0.12
+            text,
+            re.IGNORECASE,
+        ):
+            bonus += 0.08
+        elif re.search(r"\b\d+\b", text):
+            bonus += 0.04
 
     if lowered_question.startswith("how many"):
-        if re.search(r"\b\d+\b", lowered_text):
+        if re.search(r"\b\d+\b", text.lower()):
             bonus += 0.22
 
     if lowered_question.startswith("where "):
@@ -1367,10 +1421,22 @@ def _answer_type_bonus(question: str, text: str) -> float:
         if re.search(r"\b[A-Z][a-z]+,\s+[A-Z][a-z]+\b", text):
             bonus += 0.08
 
-    if "nickname" in lowered_question:
-        if re.search(r"\b[A-Z][a-z]+ the [A-Z][a-z]+\b", text):
-            bonus += 0.2
-        elif '"' in text or "'" in text:
-            bonus += 0.1
+    if "nickname" in lowered_question and has_nickname_alias(text, nickname_subject_terms):
+        bonus += 0.38
 
     return bonus
+
+
+def _answer_type_penalty(question: str, text: str) -> float:
+    lowered_question = question.lower()
+    nickname_subject_terms = extract_named_subject_terms(question) or extract_anchor_terms(question)
+    penalty = 0.0
+    if lowered_question.startswith("when ") and not has_explicit_date(text):
+        penalty += 0.18 if has_temporal_marker(text) else 0.24
+    if "nickname" in lowered_question:
+        if not has_nickname_alias(text, nickname_subject_terms):
+            penalty += 0.24
+        named_terms = extract_named_subject_terms(question)
+        if named_terms and not (named_terms & _tokenize(text)):
+            penalty += 0.28
+    return penalty

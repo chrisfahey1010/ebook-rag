@@ -2,6 +2,30 @@ import re
 
 WHITESPACE_RE = re.compile(r"\s+")
 TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
+MONTH_NAME_RE = re.compile(
+    r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+    r"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|"
+    r"dec(?:ember)?)\b",
+    re.IGNORECASE,
+)
+YEAR_RE = re.compile(r"\b\d{4}\b")
+NUMERIC_DATE_RE = re.compile(r"\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b")
+TEMPORAL_PHRASE_RE = re.compile(
+    r"\b(?:before|after|during|while|upon|once)\s+[A-Za-z0-9]",
+    re.IGNORECASE,
+)
+TIME_OF_DAY_RE = re.compile(
+    r"\b(?:morning|afternoon|evening|night|weekend|spring|summer|fall|autumn|winter|"
+    r"noon|midnight)\b",
+    re.IGNORECASE,
+)
+ALIAS_PATTERN_RE = re.compile(
+    r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\s+the\s+[A-Z][a-z]+\b"
+)
+SELF_REFERENCE_ALIAS_RE = re.compile(
+    r"\b(?:they\s+don't\s+call\s+me|they\s+call\s+me|call\s+me|known\s+as)\b",
+    re.IGNORECASE,
+)
 
 STOPWORDS = {
     "a",
@@ -235,3 +259,51 @@ def metadata_noise_score(text: str) -> float:
 
     ratio = metadata_matches / len(tokens)
     return min(1.0, ratio * 4 + (0.2 if metadata_matches >= 2 else 0.0))
+
+
+def has_temporal_marker(text: str) -> bool:
+    if not text:
+        return False
+    return bool(
+        has_explicit_date(text)
+        or TEMPORAL_PHRASE_RE.search(text)
+        or TIME_OF_DAY_RE.search(text)
+    )
+
+
+def has_explicit_date(text: str) -> bool:
+    if not text:
+        return False
+    return bool(MONTH_NAME_RE.search(text) or YEAR_RE.search(text) or NUMERIC_DATE_RE.search(text))
+
+
+def has_nickname_alias(text: str, anchor_terms: set[str] | None = None) -> bool:
+    if not text:
+        return False
+
+    normalized_text = WHITESPACE_RE.sub(" ", text).strip()
+    lowered_text = normalized_text.lower()
+    if anchor_terms and not (anchor_terms & tokenize_terms(lowered_text)):
+        return False
+
+    return bool(
+        ALIAS_PATTERN_RE.search(normalized_text)
+        or (
+            SELF_REFERENCE_ALIAS_RE.search(normalized_text)
+            and re.search(r"\b[a-z]+(?:\s+[a-z]+)?\s+the\s+[a-z]+\b", lowered_text)
+        )
+    )
+
+
+def extract_named_subject_terms(text: str) -> set[str]:
+    named_terms: set[str] = set()
+    for index, raw_token in enumerate(TOKEN_RE.findall(text)):
+        if index == 0 and raw_token.lower() in STOPWORDS:
+            continue
+        if not raw_token[:1].isupper():
+            continue
+        normalized = normalize_term(raw_token.lower())
+        if len(normalized) <= 1 or normalized in STOPWORDS or normalized in NON_ANCHOR_TERMS:
+            continue
+        named_terms.add(normalized)
+    return named_terms

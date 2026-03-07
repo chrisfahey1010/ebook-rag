@@ -697,6 +697,54 @@ def test_select_evidence_citations_use_question_terms_to_break_page_ties() -> No
     assert citations[0].page_start == 11
 
 
+def test_extractive_provider_prefers_date_bearing_sentence_for_when_questions() -> None:
+    provider = ExtractiveAnswerProvider()
+    contexts = [
+        RetrievedChunkContext(
+            chunk_id="chunk-1",
+            document_id="doc-1",
+            document_title="Book",
+            document_filename="book.pdf",
+            chunk_index=1,
+            page_start=2,
+            page_end=2,
+            text=(
+                "Carey McWilliams asked Hunter S. Thompson to write the original article. "
+                "The article appeared in The Nation in April 1965."
+            ),
+            token_estimate=18,
+            score=0.9,
+            rerank_score=0.9,
+        ),
+        RetrievedChunkContext(
+            chunk_id="chunk-2",
+            document_id="doc-1",
+            document_title="Book",
+            document_filename="book.pdf",
+            chunk_index=2,
+            page_start=38,
+            page_end=38,
+            text=(
+                "It was not until my article on motorcycles appeared in The Nation "
+                "that they really believed I had spent time with the gang."
+            ),
+            token_estimate=19,
+            score=0.95,
+            rerank_score=0.95,
+        ),
+    ]
+
+    answer = provider.generate_answer(
+        question="When did the original article appear in The Nation?",
+        contexts=contexts,
+    )
+
+    assert answer.supported is True
+    assert "april 1965" in answer.answer_text.lower()
+    assert answer.citations
+    assert answer.citations[0].page_start == 2
+
+
 def test_assemble_answer_contexts_prefers_direct_evidence_over_broader_summary() -> None:
     contexts = [
         RetrievedChunkContext(

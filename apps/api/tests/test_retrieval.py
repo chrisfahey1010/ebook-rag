@@ -601,3 +601,67 @@ def test_retrieval_prefers_full_entity_and_date_support_when_dense_scores_are_fl
     assert payload["matches"][0]["document_id"] == exact_document_id
     assert "carey mcwilliams" in payload["matches"][0]["text"].lower()
     assert "april 1965" in payload["matches"][0]["text"].lower()
+
+
+def test_retrieval_prefers_specific_alias_passages_for_nickname_questions(
+    client: TestClient, pdf_factory, monkeypatch
+) -> None:
+    generic_upload = client.post(
+        "/api/documents/upload",
+        files={
+            "file": (
+                "glossary.pdf",
+                pdf_factory(
+                    [
+                        (
+                            "Club members usually use a nickname designated as their legal name, "
+                            "and are carried on club rolls under that name."
+                        ),
+                    ]
+                ),
+                "application/pdf",
+            )
+        },
+    )
+    exact_upload = client.post(
+        "/api/documents/upload",
+        files={
+            "file": (
+                "profiles.pdf",
+                pdf_factory(
+                    [
+                        (
+                            "One night I tried to arrange a contact with a young Angel named Rodger. "
+                            "They don't call me Rodger the Lodger for nothing, he said."
+                        ),
+                    ]
+                ),
+                "application/pdf",
+            )
+        },
+    )
+    assert generic_upload.status_code == 201
+    assert exact_upload.status_code == 201
+    exact_document_id = exact_upload.json()["document"]["id"]
+
+    class _ZeroEmbeddingProvider:
+        dimensions = get_settings().embedding_dimensions
+
+        def embed_texts(self, texts: list[str]) -> list[list[float]]:
+            return [[0.0] * self.dimensions for _ in texts]
+
+    monkeypatch.setattr(
+        "ebook_rag_api.services.retrieval.get_embedding_provider",
+        lambda: _ZeroEmbeddingProvider(),
+    )
+
+    response = client.post(
+        "/api/retrieval/search",
+        json={"query": "What nickname does Rodger use for himself?", "top_k": 3},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["matches"]
+    assert payload["matches"][0]["document_id"] == exact_document_id
+    assert "rodger the lodger" in payload["matches"][0]["text"].lower()

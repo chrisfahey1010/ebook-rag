@@ -9,6 +9,10 @@ from ebook_rag_api.services.text import (
     contains_normalized_phrase,
     extract_anchor_terms,
     extract_constraint_terms,
+    extract_named_subject_terms,
+    has_explicit_date,
+    has_nickname_alias,
+    has_temporal_marker,
     normalized_token_sequence,
     tokenize_terms,
 )
@@ -54,6 +58,15 @@ class TokenOverlapReranker:
                 )
                 + _ordered_query_term_bonus(query, passage)
                 + phrase_bonus
+                + _question_intent_bonus(
+                    query=query,
+                    passage=passage,
+                    query_anchor_terms=query_anchor_terms,
+                )
+                - _question_intent_penalty(
+                    query=query,
+                    passage=passage,
+                )
             )
 
         return scores
@@ -185,3 +198,31 @@ def _ordered_query_term_bonus(query: str, passage: str) -> float:
     if overlap == 0:
         return 0.0
     return min(0.2, overlap / len(query_pairs) * 0.2)
+
+
+def _question_intent_bonus(
+    *,
+    query: str,
+    passage: str,
+    query_anchor_terms: set[str],
+) -> float:
+    lowered_query = query.lower()
+    bonus = 0.0
+    nickname_subject_terms = extract_named_subject_terms(query) or query_anchor_terms
+    if lowered_query.startswith("when "):
+        if has_explicit_date(passage):
+            bonus += 0.22
+        elif has_temporal_marker(passage):
+            bonus += 0.05
+    if "nickname" in lowered_query and has_nickname_alias(passage, nickname_subject_terms):
+        bonus += 0.45
+    return min(0.5, bonus)
+
+
+def _question_intent_penalty(*, query: str, passage: str) -> float:
+    if "nickname" not in query.lower():
+        return 0.0
+    named_terms = extract_named_subject_terms(query)
+    if named_terms and not (named_terms & tokenize_terms(passage, drop_stopwords=True)):
+        return 0.35
+    return 0.0

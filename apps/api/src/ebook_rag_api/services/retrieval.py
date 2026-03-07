@@ -14,6 +14,10 @@ from ebook_rag_api.services.text import (
     contains_normalized_phrase,
     extract_anchor_terms,
     extract_constraint_terms,
+    extract_named_subject_terms,
+    has_explicit_date,
+    has_nickname_alias,
+    has_temporal_marker,
     metadata_noise_score,
     normalize_query_text,
     normalized_token_sequence,
@@ -259,12 +263,14 @@ def lexical_overlap_score(query: str, text: str, heading: str | None = None) -> 
         + heading_bonus
         + anchor_bonus
         + constraint_bonus
+        + _question_intent_bonus(query=query, text=searchable_text)
+        - _question_intent_penalty(query=query, text=searchable_text)
         - metadata_penalty,
     )
 
 
 def tokenize_for_search(text: str) -> set[str]:
-    return tokenize_terms(text)
+    return tokenize_terms(text, drop_stopwords=True)
 
 
 def contains_query_phrase(query: str, text: str) -> bool:
@@ -335,6 +341,10 @@ def fuse_candidates(
                 query,
                 f"{chunks_by_id[chunk_id].heading or ''} {chunks_by_id[chunk_id].text}".strip(),
                 max_bonus=0.2,
+            )
+            - _question_intent_penalty(
+                query=query,
+                text=f"{chunks_by_id[chunk_id].heading or ''} {chunks_by_id[chunk_id].text}".strip(),
             )
             - metadata_noise_score(chunks_by_id[chunk_id].text) * 0.3,
         )
@@ -467,12 +477,21 @@ def rerank_matches(
                     text=f"{match.chunk.heading or ''} {match.chunk.text}".strip(),
                 )
                 * 0.24
+                + _question_intent_bonus(
+                    query=query,
+                    text=f"{match.chunk.heading or ''} {match.chunk.text}".strip(),
+                )
+                * 0.22
                 + query_run_bonus(
                     query,
                     f"{match.chunk.heading or ''} {match.chunk.text}".strip(),
                     max_bonus=0.16,
                 )
                 - metadata_noise_score(match.chunk.text) * 0.25,
+                - _question_intent_penalty(
+                    query=query,
+                    text=f"{match.chunk.heading or ''} {match.chunk.text}".strip(),
+                ),
             ),
         )
         for match in matches
@@ -516,9 +535,38 @@ def _focused_query_match_bonus(*, query: str, text: str) -> float:
         bonus += 0.1
 
     if query.lower().startswith("when "):
-        if YEAR_RE.search(text):
+        if has_temporal_marker(text):
             bonus += 0.1
+        if YEAR_RE.search(text):
+            bonus += 0.08
         if MONTH_RE.search(text):
             bonus += 0.1
 
     return min(1.0, bonus)
+
+
+def _question_intent_bonus(*, query: str, text: str) -> float:
+    lowered_query = query.lower()
+    bonus = 0.0
+    nickname_subject_terms = extract_named_subject_terms(query) or extract_anchor_terms(query)
+    if lowered_query.startswith("when "):
+        if has_explicit_date(text):
+            bonus += 0.24
+            if YEAR_RE.search(text) and MONTH_RE.search(text):
+                bonus += 0.08
+        elif has_temporal_marker(text):
+            bonus += 0.05
+    if "nickname" in lowered_query and has_nickname_alias(text, nickname_subject_terms):
+        bonus += 0.55
+    return min(0.7, bonus)
+
+
+def _question_intent_penalty(*, query: str, text: str) -> float:
+    lowered_query = query.lower()
+    penalty = 0.0
+    if "nickname" in lowered_query:
+        named_terms = extract_named_subject_terms(query)
+        passage_terms = tokenize_for_search(text)
+        if named_terms and not (named_terms & passage_terms):
+            penalty += 0.35
+    return penalty
