@@ -119,6 +119,7 @@ Current implementation includes:
 - question-aware citation ranking that breaks evidence ties using anchor terms, constraints, answer-type cues, and narrower page spans
 - pluggable QA providers, including a local extractive fallback and an OpenAI-compatible adapter
 - retrieval debug route and browser-side candidate inspector
+- browser-side page-local citation inspector with answer-sentence matching and normalized-text offset spans
 - browser-side ingestion status refresh and reprocessing controls
 - an expanded curated eval set for retrieval, unsupported-answer, and citation regression checks
 - Next.js document library, upload flow, QA workspace, citation preview pane, and retrieval inspector
@@ -158,9 +159,9 @@ QA builds on retrieval and returns a grounded answer plus structured citations. 
 
 Provider selection is environment-driven. Embeddings, reranking, and answer generation can now be configured independently for local-only, hosted, or mixed setups.
 
-`POST /api/qa/ask` now accepts `include_trace=true` to expose the selected context window, cited evidence, chunk provenance, prompt snapshot, provider name, and timing breakdown used for answer generation.
+`POST /api/qa/ask` now accepts `include_trace=true` to expose the selected context window, cited evidence, chunk provenance, prompt snapshot, provider name, and timing breakdown used for answer generation. The web app uses that trace plus citation provenance to show a selected-citation inspector with answer-sentence matching, page-local normalized-text offsets, paragraph spans, and score breakdowns for source verification.
 
-Debug retrieval exposes the ranked candidate list directly so the frontend can show what the retriever selected before answer generation, including dense and rerank score breakdowns plus chunk provenance. Additional debug routes now expose persisted document chunks and standalone reranker scoring so chunking, retrieval, rerank, and page-local source spans can be inspected separately during tuning.
+Debug retrieval exposes the ranked candidate list directly so the frontend can show what the retriever selected before answer generation, including dense, lexical, hybrid, rerank, and final score breakdowns plus chunk provenance. Additional debug routes now expose persisted document chunks and standalone reranker scoring so chunking, retrieval, rerank, and page-local source spans can be inspected separately during tuning.
 
 ## Evaluation
 

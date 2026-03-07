@@ -306,9 +306,13 @@ The current UI is functional. The next step is to make it more inspectable and m
 - surface ingestion status and reprocessing actions
 - support streamed answer rendering
 - improve citation browsing:
-  - stronger page/chunk labels
-  - clearer selected-citation state
-  - easier comparison between answer text and source text
+  - completed:
+    - stronger page/chunk labels
+    - clearer selected-citation state
+    - easier comparison between answer text and source text
+    - page-local citation inspection using normalized-text offsets and paragraph spans
+  - remaining:
+    - carry the same page-local evidence comparison into future streamed-answer UX
 - add model/provider visibility in the UI for debugging
 - preserve the current local-first simplicity; avoid overbuilding account-style product chrome
 
@@ -382,8 +386,8 @@ The best next coding slice is now:
 2. broaden the benchmark set before more retrieval tuning
    - add harder multi-page citation and unsupported-answer cases
    - add more real-document fixtures so chunking and retrieval decisions are not overfit to the current synthetic-heavy set
-3. use the new character-span provenance to tighten page-local citation inspection
-   - surface normalized-text offsets in the web debug workspace where they help source verification
+3. convert the new page-local citation inspector into regression coverage
    - add eval cases that distinguish right-page versus wrong-sentence citation failures
+   - decide which citation-granularity failures should be regression-gating versus exploratory-only
 
-The chunking decision itself is now benchmark-backed for the current fixture set, normalization now preserves heading blocks while collapsing soft-wrapped body lines more cleanly, and chunk provenance now includes character-span offsets for page-local inspection. The next step should therefore focus on the remaining documentation gap and broader eval coverage, while using the richer provenance to decide whether another retrieval or citation-selection change is justified.
+The chunking decision itself is now benchmark-backed for the current fixture set, normalization now preserves heading blocks while collapsing soft-wrapped body lines more cleanly, chunk provenance now includes character-span offsets for page-local inspection, and the web debug workspace now surfaces those offsets for direct source verification. The next step should therefore focus on the remaining documentation gap and broader eval coverage, while using the richer provenance to decide whether another retrieval or citation-selection change is justified.

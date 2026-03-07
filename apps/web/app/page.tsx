@@ -48,6 +48,44 @@ type IngestionStatusResponse = {
   ingestion_job: IngestionJobSummary | null;
 };
 
+type PageCharRange = {
+  page_number: number;
+  start_char: number;
+  end_char: number;
+};
+
+type ParagraphProvenance = {
+  global_index: number;
+  page_number: number;
+  page_paragraph_index: number;
+  char_start: number;
+  char_end: number;
+  is_heading: boolean;
+};
+
+type ChunkProvenance = {
+  source_page_numbers?: number[];
+  paragraph_count?: number;
+  paragraph_range?: {
+    start: number;
+    end: number;
+  };
+  page_paragraph_range?: {
+    start_page: number;
+    start_index: number;
+    end_page: number;
+    end_index: number;
+  };
+  char_range?: {
+    start_page: number;
+    start_char: number;
+    end_page: number;
+    end_char: number;
+  };
+  page_char_ranges?: PageCharRange[];
+  paragraphs?: ParagraphProvenance[];
+};
+
 type Citation = {
   chunk_id: string;
   document_id: string;
@@ -57,6 +95,11 @@ type Citation = {
   page_start: number;
   page_end: number;
   text: string;
+  provenance: ChunkProvenance | null;
+  dense_score: number;
+  lexical_score: number;
+  hybrid_score: number;
+  rerank_score: number;
   score: number;
 };
 
@@ -81,6 +124,7 @@ type QATrace = {
   answer_provider: string;
   retrieved_chunks: RetrievalMatch[];
   selected_contexts: RetrievalMatch[];
+  cited_contexts: RetrievalMatch[];
   prompt_snapshot: string;
   timings: QATimingBreakdown;
 };
@@ -94,6 +138,11 @@ type RetrievalMatch = {
   page_start: number;
   page_end: number;
   text: string;
+  provenance: ChunkProvenance | null;
+  dense_score: number;
+  lexical_score: number;
+  hybrid_score: number;
+  rerank_score: number;
   score: number;
 };
 
@@ -128,6 +177,79 @@ function formatChunkingConfig(config: ChunkingConfig | null): string {
     return "Not recorded";
   }
   return `${config.target_words}w target, ${config.overlap_words}w overlap`;
+}
+
+function formatCharRangeLabel(
+  pageNumber: number,
+  startChar: number,
+  endChar: number,
+): string {
+  return `p. ${pageNumber} chars ${startChar}-${endChar}`;
+}
+
+function formatScore(value: number): string {
+  return value.toFixed(3);
+}
+
+function formatCrossPageSpan(charRange: NonNullable<ChunkProvenance["char_range"]>): string {
+  if (charRange.start_page === charRange.end_page) {
+    return formatCharRangeLabel(
+      charRange.start_page,
+      charRange.start_char,
+      charRange.end_char,
+    );
+  }
+  return `start p. ${charRange.start_page} char ${charRange.start_char}, end p. ${charRange.end_page} char ${charRange.end_char}`;
+}
+
+function splitIntoSentences(text: string): string[] {
+  return text
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+}
+
+function normalizeForTermMatch(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]+/g, " ")
+    .split(/\s+/)
+    .filter((term) => term.length > 2);
+}
+
+function findBestMatchingAnswerSentence(
+  answerText: string,
+  citationText: string,
+): string {
+  const answerSentences = splitIntoSentences(answerText);
+  const citationTerms = new Set(normalizeForTermMatch(citationText));
+  let bestSentence = answerSentences[0] ?? answerText;
+  let bestScore = -1;
+
+  for (const sentence of answerSentences) {
+    const sentenceTerms = normalizeForTermMatch(sentence);
+    const overlap = sentenceTerms.filter((term) => citationTerms.has(term)).length;
+    if (overlap > bestScore) {
+      bestSentence = sentence;
+      bestScore = overlap;
+    }
+  }
+
+  return bestSentence;
+}
+
+function getCitationInspectorCopy(citation: Citation, answerText: string) {
+  const answerSentence = findBestMatchingAnswerSentence(answerText, citation.text);
+  const pageCharRanges = citation.provenance?.page_char_ranges ?? [];
+  const paragraphRange = citation.provenance?.page_paragraph_range;
+  const charRange = citation.provenance?.char_range;
+
+  return {
+    answerSentence,
+    pageCharRanges,
+    paragraphRange,
+    charRange,
+  };
 }
 
 async function parseApiError(response: Response): Promise<string> {
@@ -174,6 +296,9 @@ export default function Home() {
   const [answer, setAnswer] = useState<QAResponse | null>(null);
   const [retrievalResult, setRetrievalResult] = useState<RetrievalResponse | null>(null);
   const [qaTrace, setQaTrace] = useState<QATrace | null>(null);
+  const [selectedCitationChunkId, setSelectedCitationChunkId] = useState<string | null>(
+    null,
+  );
   const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
   const [ingestionStatus, setIngestionStatus] = useState<IngestionStatusResponse | null>(null);
   const [ingestionError, setIngestionError] = useState<string | null>(null);
@@ -187,6 +312,14 @@ export default function Home() {
 
   const selectedDocument =
     documents.find((document) => document.id === selectedDocumentId) ?? null;
+  const selectedCitation =
+    answer?.citations.find((citation) => citation.chunk_id === selectedCitationChunkId) ??
+    answer?.citations[0] ??
+    null;
+  const selectedCitationInspector =
+    selectedCitation && answer
+      ? getCitationInspectorCopy(selectedCitation, answer.answer)
+      : null;
 
   function syncDocument(nextDocument: DocumentSummary) {
     setDocuments((current) =>
@@ -289,6 +422,10 @@ export default function Home() {
       cancelled = true;
     };
   }, [selectedDocumentId]);
+
+  useEffect(() => {
+    setSelectedCitationChunkId(answer?.citations[0]?.chunk_id ?? null);
+  }, [answer]);
 
   function handleUploadSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -458,6 +595,7 @@ export default function Home() {
 
         setAnswer(qaPayload);
         setQaTrace(qaPayload.trace);
+        setSelectedCitationChunkId(qaPayload.citations[0]?.chunk_id ?? null);
         setRetrievalResult(
           qaPayload.trace
             ? {
@@ -543,6 +681,7 @@ export default function Home() {
         if (selectedDocumentId === document.id) {
           setAnswer(null);
           setQaTrace(null);
+          setSelectedCitationChunkId(null);
           setRetrievalResult(null);
           setQaError(null);
           setRetrievalError(null);
@@ -984,49 +1123,183 @@ export default function Home() {
                     similarity scores.
                   </p>
                 ) : (
-                  <div className="mt-5 flex max-h-[42rem] flex-col gap-4 overflow-y-auto pr-1">
-                    {answer.citations.map((citation, index) => (
-                      <article
-                        key={citation.chunk_id}
-                        className="rounded-[1.2rem] border border-[var(--border)] bg-white/70 p-4"
-                      >
+                  <div className="mt-5 space-y-4">
+                    <div className="flex max-h-[20rem] flex-col gap-4 overflow-y-auto pr-1">
+                      {answer.citations.map((citation, index) => {
+                        const selected = selectedCitation?.chunk_id === citation.chunk_id;
+
+                        return (
+                          <button
+                            key={`${citation.chunk_id}-${index}`}
+                            type="button"
+                            onClick={() => setSelectedCitationChunkId(citation.chunk_id)}
+                            className={`rounded-[1.2rem] border p-4 text-left transition ${
+                              selected
+                                ? "border-[var(--accent)] bg-white shadow-[0_16px_32px_rgba(63,42,29,0.08)]"
+                                : "border-[var(--border)] bg-white/70 hover:bg-white"
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-medium">
+                                  {citation.document_title || citation.document_filename}
+                                </p>
+                                <p className="mt-1 text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
+                                  Citation {index + 1}
+                                </p>
+                              </div>
+                              <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-medium text-stone-700">
+                                {formatScore(citation.score)}
+                              </span>
+                            </div>
+
+                            <dl className="mt-4 grid grid-cols-2 gap-3 text-sm text-[var(--muted)]">
+                              <div>
+                                <dt>Pages</dt>
+                                <dd className="mt-1 text-[var(--foreground)]">
+                                  {formatPageRange(
+                                    citation.page_start,
+                                    citation.page_end,
+                                  )}
+                                </dd>
+                              </div>
+                              <div>
+                                <dt>Chunk</dt>
+                                <dd className="mt-1 text-[var(--foreground)]">
+                                  #{citation.chunk_index}
+                                </dd>
+                              </div>
+                            </dl>
+
+                            <p className="mt-4 line-clamp-5 text-sm leading-7 text-[var(--foreground)]">
+                              {citation.text}
+                            </p>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {selectedCitation && answer && selectedCitationInspector ? (
+                      <article className="rounded-[1.2rem] border border-[var(--accent)] bg-amber-50/70 p-4">
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <p className="text-sm font-medium">
-                              {citation.document_title || citation.document_filename}
+                            <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+                              Citation inspector
                             </p>
-                            <p className="mt-1 text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-                              Citation {index + 1}
-                            </p>
+                            <h4 className="mt-2 text-lg">Page-local evidence trace</h4>
                           </div>
-                          <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-medium text-stone-700">
-                            {citation.score.toFixed(3)}
+                          <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-900">
+                            chunk #{selectedCitation.chunk_index}
                           </span>
                         </div>
 
-                        <dl className="mt-4 grid grid-cols-2 gap-3 text-sm text-[var(--muted)]">
-                          <div>
-                            <dt>Pages</dt>
-                            <dd className="mt-1 text-[var(--foreground)]">
-                              {formatPageRange(
-                                citation.page_start,
-                                citation.page_end,
-                              )}
-                            </dd>
+                        <div className="mt-4 grid gap-4">
+                          <div className="rounded-[1rem] border border-[var(--border)] bg-white/80 px-4 py-4">
+                            <p className="text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
+                              Answer sentence
+                            </p>
+                            <p className="mt-2 text-sm leading-7">
+                              {selectedCitationInspector.answerSentence}
+                            </p>
                           </div>
-                          <div>
-                            <dt>Chunk</dt>
-                            <dd className="mt-1 text-[var(--foreground)]">
-                              #{citation.chunk_index}
-                            </dd>
-                          </div>
-                        </dl>
 
-                        <p className="mt-4 text-sm leading-7 text-[var(--foreground)]">
-                          {citation.text}
-                        </p>
+                          <div className="rounded-[1rem] border border-[var(--border)] bg-white/80 px-4 py-4">
+                            <p className="text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
+                              Cited excerpt
+                            </p>
+                            <p className="mt-2 text-sm leading-7">{selectedCitation.text}</p>
+                          </div>
+
+                          <div className="rounded-[1rem] border border-[var(--border)] bg-white/80 px-4 py-4">
+                            <p className="text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
+                              Normalized source span
+                            </p>
+                            <div className="mt-3 space-y-3 text-sm">
+                              {selectedCitationInspector.charRange ? (
+                                <p className="text-[var(--foreground)]">
+                                  Source span:{" "}
+                                  {formatCrossPageSpan(selectedCitationInspector.charRange)}
+                                </p>
+                              ) : (
+                                <p className="text-[var(--muted)]">
+                                  No normalized-text span metadata recorded.
+                                </p>
+                              )}
+
+                              {selectedCitationInspector.pageCharRanges.length > 0 ? (
+                                <div className="flex flex-wrap gap-2">
+                                  {selectedCitationInspector.pageCharRanges.map((range) => (
+                                    <span
+                                      key={`${selectedCitation.chunk_id}-${range.page_number}-${range.start_char}`}
+                                      className="rounded-full bg-stone-100 px-3 py-1 text-xs font-medium text-stone-700"
+                                    >
+                                      {formatCharRangeLabel(
+                                        range.page_number,
+                                        range.start_char,
+                                        range.end_char,
+                                      )}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : null}
+
+                              {selectedCitationInspector.paragraphRange ? (
+                                <p className="text-[var(--foreground)]">
+                                  Paragraph provenance: p.{" "}
+                                  {selectedCitationInspector.paragraphRange.start_page}
+                                  /
+                                  {selectedCitationInspector.paragraphRange.start_index} to p.{" "}
+                                  {selectedCitationInspector.paragraphRange.end_page}
+                                  /
+                                  {selectedCitationInspector.paragraphRange.end_index}
+                                </p>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <div className="rounded-[1rem] border border-[var(--border)] bg-white/80 px-4 py-4 text-sm">
+                              <p className="text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
+                                Citation scoring
+                              </p>
+                              <dl className="mt-3 grid grid-cols-2 gap-2 text-[var(--foreground)]">
+                                <div>
+                                  <dt className="text-[var(--muted)]">Final</dt>
+                                  <dd>{formatScore(selectedCitation.score)}</dd>
+                                </div>
+                                <div>
+                                  <dt className="text-[var(--muted)]">Rerank</dt>
+                                  <dd>{formatScore(selectedCitation.rerank_score)}</dd>
+                                </div>
+                                <div>
+                                  <dt className="text-[var(--muted)]">Hybrid</dt>
+                                  <dd>{formatScore(selectedCitation.hybrid_score)}</dd>
+                                </div>
+                                <div>
+                                  <dt className="text-[var(--muted)]">Lexical</dt>
+                                  <dd>{formatScore(selectedCitation.lexical_score)}</dd>
+                                </div>
+                                <div>
+                                  <dt className="text-[var(--muted)]">Dense</dt>
+                                  <dd>{formatScore(selectedCitation.dense_score)}</dd>
+                                </div>
+                              </dl>
+                            </div>
+
+                            <div className="rounded-[1rem] border border-[var(--border)] bg-white/80 px-4 py-4 text-sm">
+                              <p className="text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
+                                Inspection intent
+                              </p>
+                              <p className="mt-3 leading-7 text-[var(--foreground)]">
+                                Use the answer sentence, excerpt, and page-local offsets
+                                together to spot right-page versus wrong-sentence citation
+                                failures quickly.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
                       </article>
-                    ))}
+                    ) : null}
                   </div>
                 )}
               </aside>
@@ -1121,6 +1394,23 @@ export default function Home() {
                             </div>
                           </dl>
 
+                          {match.provenance?.page_char_ranges?.length ? (
+                            <div className="mt-4 flex flex-wrap gap-2">
+                              {match.provenance.page_char_ranges.map((range) => (
+                                <span
+                                  key={`${match.chunk_id}-${range.page_number}-${range.start_char}`}
+                                  className="rounded-full bg-stone-100 px-3 py-1 text-xs font-medium text-stone-700"
+                                >
+                                  {formatCharRangeLabel(
+                                    range.page_number,
+                                    range.start_char,
+                                    range.end_char,
+                                  )}
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
+
                           <p className="mt-4 text-sm leading-7 text-[var(--foreground)]">
                             {match.text}
                           </p>
@@ -1171,6 +1461,23 @@ export default function Home() {
                                   </dd>
                                 </div>
                               </dl>
+
+                              {match.provenance?.page_char_ranges?.length ? (
+                                <div className="mt-4 flex flex-wrap gap-2">
+                                  {match.provenance.page_char_ranges.map((range) => (
+                                    <span
+                                      key={`${match.chunk_id}-selected-${range.page_number}-${range.start_char}`}
+                                      className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-900"
+                                    >
+                                      {formatCharRangeLabel(
+                                        range.page_number,
+                                        range.start_char,
+                                        range.end_char,
+                                      )}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : null}
 
                               <p className="mt-4 text-sm leading-7 text-[var(--foreground)]">
                                 {match.text}
