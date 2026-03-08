@@ -45,11 +45,14 @@ The shortest path to completion is:
 
 As of March 8, 2026:
 
-- the committed regression suite mostly passes on answer quality
-- the current regression failure is a `latency_p95_ms` regression on the John Deere manual benchmark
+- the committed gating regression suite is the canonical release check, and the latest March 8, 2026 rerun is not green because of latency regressions
+- the latest rerun preserved perfect answer-quality metrics on the current John Deere, Qwen 3 technical report, and GPT-5.4 thinking card gating suites, but flagged:
+  - John Deere manual: `average_latency_ms`, `latency_p50_ms`, and `latency_p95_ms`
+  - Qwen 3 technical report: `average_latency_ms`, `latency_p50_ms`, and `latency_p95_ms`
+  - GPT-5.4 thinking card: `latency_p50_ms`
 - the long-form `hells_angels` benchmark is still not V1-complete quality-wise
 - the Amazon earnings benchmark is not actually green in the current code path:
-  - rerunning `uv run python scripts/run_eval.py --benchmark benchmarks/amazon_earnings_eval.json` produced `answer_match_rate=0.8`, `citation_hit_rate=0.8`, `gating_citation_evidence_hit_rate=0.8`, and `unsupported_precision=0.5`
+  - the current saved March 8, 2026 artifact reports `retrieval_hit_rate=1.0`, `citation_hit_rate=0.9`, `citation_evidence_hit_rate=0.5`, `gating_citation_evidence_hit_rate=0.625`, `support_accuracy=0.9`, `answer_match_rate=0.5`, and `unsupported_precision=0.5`
   - that directly conflicts with some README/plan claims, so the docs are overstating current quality
 
 ## Core diagnosis
@@ -101,6 +104,12 @@ This should happen first. It is small, but it fixes the project-management probl
   - exploratory long-form suites
   - known failing suites that are tracked but not release-blocking yet
 - document the current answer-quality gaps instead of burying them in prose
+
+Current benchmark status after this cleanup:
+
+- Stable gating suites: `john_deere_mower_manual`, `qwen3_technical_report`, `gpt_5_4_thinking_card`, and `citation_granularity`
+- Exploratory long-form coverage: `infinite_jest`, plus the exploratory checks inside `hells_angels`
+- Tracked but not release-blocking: `amazon_earnings`, and the remaining long-form misses in `hells_angels`
 
 #### Exit criteria
 

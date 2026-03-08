@@ -89,7 +89,11 @@ uv run python scripts/run_regression_suite.py
 
 That command reruns the manual/report/system-card benchmarks, writes fresh `*_latest.json` and `*_latest.md` artifacts under `benchmarks/results/`, compares each run to its saved baseline, and exits non-zero if any gating metric regresses.
 
-As of March 8, 2026, that regression suite is mostly stable on answer quality, but it is not fully green: a recent rerun flagged a `latency_p95_ms` regression on the John Deere manual benchmark.
+As of March 8, 2026, that regression suite is the canonical release check, and it is not fully green. A fresh rerun preserved perfect answer-quality metrics on the current John Deere, Qwen 3 technical report, and GPT-5.4 thinking card suites, but it still flagged latency regressions relative to the saved March 8 baselines:
+
+- John Deere manual: `average_latency_ms`, `latency_p50_ms`, and `latency_p95_ms`
+- Qwen 3 technical report: `average_latency_ms`, `latency_p50_ms`, and `latency_p95_ms`
+- GPT-5.4 thinking card: `latency_p50_ms`
 
 To refresh the saved baselines intentionally:
 
@@ -115,7 +119,7 @@ uv run python scripts/run_eval.py \
   --output-markdown benchmarks/results/amazon_earnings_latest.md
 ```
 
-The Amazon benchmark is still a tracked quality target rather than a clean pass in the live code path. A fresh March 8, 2026 rerun produced `answer_match_rate=0.8`, `citation_hit_rate=0.8`, `citation_evidence_hit_rate=0.8`, `gating_citation_evidence_hit_rate=0.8`, and `unsupported_precision=0.5`, with remaining misses around structured/page-local evidence selection and unsupported-answer behavior.
+The Amazon benchmark is still a tracked quality target rather than a clean pass in the live code path, and it should not be treated as a release gate yet. The current saved March 8, 2026 artifact reports `retrieval_hit_rate=1.0`, `citation_hit_rate=0.9`, `citation_evidence_hit_rate=0.5`, `gating_citation_evidence_hit_rate=0.625`, `support_accuracy=0.9`, `answer_match_rate=0.5`, and `unsupported_precision=0.5`, with remaining misses around structured/page-local evidence selection and unsupported-answer behavior.
 
 The local real-document fixture library under `benchmarks/local/` now includes:
 
@@ -126,7 +130,11 @@ The local real-document fixture library under `benchmarks/local/` now includes:
 - `qwen3_technical_report.pdf` for technical-report and acronym-heavy questions
 - `gpt-5-4_thinking_card.pdf` for model/system-card style factual summaries and policy-like constraints
 
-The manual/report/system-card fixtures now have dedicated benchmark JSON files plus committed baseline artifacts. `infinite_jest` remains exploratory and `hells_angels` still mixes gating and exploratory checks, so those longer-form suites should be promoted more cautiously.
+Benchmark status is intentionally split:
+
+- Stable gating suites: John Deere manual, Qwen 3 technical report, GPT-5.4 thinking card, plus the focused citation-granularity fixture
+- Exploratory long-form suites: `infinite_jest`, and the exploratory checks embedded inside `hells_angels`
+- Tracked but not release-blocking: Amazon earnings and the remaining long-form `hells_angels` gaps
 
 To compare the built-in chunking presets and emit a recommendation report:
 

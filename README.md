@@ -248,9 +248,19 @@ The committed gating regression suite can be rerun with:
 uv run python scripts/run_regression_suite.py
 ```
 
-As of March 8, 2026, the committed regression suite is mostly stable on answer quality, but it is not fully green: a recent rerun flagged a `latency_p95_ms` regression on the John Deere manual benchmark. The recent ingestion-only changes also did not show a measurable end-to-end quality improvement. Treat the current ingestion heuristics as structural/debuggability improvements and add targeted benchmark cases before doing more ingestion tuning.
+As of March 8, 2026, the committed gating regression suite is the canonical release check, and it is not fully green. A fresh rerun of [`apps/api/benchmarks/regression_suite.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/regression_suite.json) showed perfect answer-quality metrics on the current John Deere, Qwen 3 technical report, and GPT-5.4 thinking card suites, but all three entries regressed on latency relative to their saved March 8 baselines. The current rerun flagged:
 
-The `infinite_jest` benchmark is intentionally exploratory for now, while the manual/report/system-card benchmarks are intended to add stable coverage for exact spec lookup, front-matter noise, acronym-heavy technical QA, and unsupported-answer behavior beyond the earlier `hells_angels` and Amazon earnings harnesses.
+- John Deere manual: `average_latency_ms`, `latency_p50_ms`, and `latency_p95_ms`
+- Qwen 3 technical report: `average_latency_ms`, `latency_p50_ms`, and `latency_p95_ms`
+- GPT-5.4 thinking card: `latency_p50_ms`
+
+The recent ingestion-only changes also did not show a measurable end-to-end quality improvement. Treat the current ingestion heuristics as structural/debuggability improvements and add targeted benchmark cases before doing more ingestion tuning.
+
+Benchmark status is intentionally split:
+
+- Stable gating suites: John Deere manual, Qwen 3 technical report, GPT-5.4 thinking card, plus the focused citation-granularity fixture
+- Exploratory long-form suites: `infinite_jest`, and the exploratory checks embedded inside `hells_angels`
+- Tracked but not release-blocking: Amazon earnings and the remaining long-form `hells_angels` gaps
 
 To rerun the committed gating regression lane for those newer stable suites and compare against saved baselines:
 
@@ -270,7 +280,7 @@ For page-local citation regression coverage, there is also a focused benchmark w
 uv run python scripts/run_eval.py --benchmark benchmarks/citation_granularity_eval.json
 ```
 
-That fixture keeps excerpt-accuracy checks in the gating lane, while selected `hells_angels` excerpt checks are marked exploratory so they surface long-form citation drift without blocking every merge. The aggregate citation-evidence metric still appears in reports, but `--fail-on-regression` gates on the explicit regression lane rather than exploratory excerpt misses. The Amazon earnings benchmark remains a useful tracked benchmark, but it is not currently a clean pass in the live code path. A fresh March 8, 2026 rerun produced `answer_match_rate=0.8`, `citation_hit_rate=0.8`, `citation_evidence_hit_rate=0.8`, `gating_citation_evidence_hit_rate=0.8`, and `unsupported_precision=0.5`, with remaining misses around structured/page-local evidence selection and unsupported-answer behavior.
+That fixture keeps excerpt-accuracy checks in the gating lane, while selected `hells_angels` excerpt checks are marked exploratory so they surface long-form citation drift without blocking every merge. The aggregate citation-evidence metric still appears in reports, but `--fail-on-regression` gates on the explicit regression lane rather than exploratory excerpt misses. The Amazon earnings benchmark remains a useful tracked benchmark, but it is not currently a clean pass in the live code path and should not be treated as a release gate yet. The current saved March 8, 2026 artifact at [`apps/api/benchmarks/results/amazon_earnings_20260308.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/results/amazon_earnings_20260308.json) reports `retrieval_hit_rate=1.0`, `citation_hit_rate=0.9`, `citation_evidence_hit_rate=0.5`, `gating_citation_evidence_hit_rate=0.625`, `support_accuracy=0.9`, `answer_match_rate=0.5`, and `unsupported_precision=0.5`, with the remaining misses concentrated around structured/page-local evidence selection and unsupported-answer behavior.
 
 For regression tracking, the benchmark runner can also persist JSON and Markdown artifacts, compare a run against a saved baseline, and summarize per-document gating versus exploratory failures:
 
