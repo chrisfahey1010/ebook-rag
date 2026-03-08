@@ -65,6 +65,7 @@ class GeneratedAnswer:
     confidence: float = 0.0
     support_score: float = 0.0
     verification: "AnswerVerification | None" = None
+    postprocess: "AnswerPostprocessTrace | None" = None
 
 
 @dataclass(frozen=True)
@@ -74,6 +75,10 @@ class QuestionRoutingDecision:
     facet_count: int
     context_count: int
     should_use_generative: bool
+    heuristic_support_score: float = 0.0
+    unsupported_classifier_ran: bool = False
+    unsupported_classifier_supported: bool | None = None
+    unsupported_classifier_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -123,6 +128,7 @@ class QATrace:
     prompt_snapshot: str
     timings: QATimingBreakdown
     verification: "AnswerVerification | None"
+    postprocess: "AnswerPostprocessTrace | None"
     answer: GeneratedAnswer
 
 
@@ -145,6 +151,17 @@ class AnswerVerification:
     average_claim_score: float
     minimum_claim_score: float
     claims: list[ClaimVerification] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class AnswerPostprocessTrace:
+    question_coverage_score: float
+    support_threshold: float
+    repair_attempted: bool
+    repair_applied: bool
+    repair_reason: str | None = None
+    claim_count: int = 0
+    supported_claim_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -434,6 +451,11 @@ def route_question(
     facets = _build_question_facets(question)
     facet_count = max(len(facets), 1)
     context_count = len(contexts)
+    heuristic_support_score = _compute_question_support_score(
+        question=question,
+        facets=facets,
+        contexts=contexts,
+    )
     if not contexts:
         return QuestionRoutingDecision(
             answer_mode="unsupported",
@@ -441,6 +463,7 @@ def route_question(
             facet_count=facet_count,
             context_count=context_count,
             should_use_generative=False,
+            heuristic_support_score=heuristic_support_score,
         )
 
     if _retrieval_support_is_too_weak(question=question, contexts=contexts, facets=facets):
@@ -450,6 +473,7 @@ def route_question(
             facet_count=facet_count,
             context_count=context_count,
             should_use_generative=False,
+            heuristic_support_score=heuristic_support_score,
         )
 
     should_use_generative = isinstance(answer_provider, OpenAICompatibleAnswerProvider)
@@ -464,6 +488,7 @@ def route_question(
             facet_count=facet_count,
             context_count=context_count,
             should_use_generative=should_use_generative,
+            heuristic_support_score=heuristic_support_score,
         )
     else:
         provisional_decision = QuestionRoutingDecision(
@@ -472,6 +497,7 @@ def route_question(
             facet_count=facet_count,
             context_count=context_count,
             should_use_generative=False,
+            heuristic_support_score=heuristic_support_score,
         )
 
     if should_use_generative and _should_run_unsupported_classifier(
@@ -496,6 +522,10 @@ def route_question(
                     facet_count=facet_count,
                     context_count=context_count,
                     should_use_generative=False,
+                    heuristic_support_score=heuristic_support_score,
+                    unsupported_classifier_ran=True,
+                    unsupported_classifier_supported=False,
+                    unsupported_classifier_reason=rationale or None,
                 )
             return replace(
                 provisional_decision,
@@ -503,6 +533,9 @@ def route_question(
                     f"{provisional_decision.reason} "
                     "Local unsupported classifier found enough evidence coverage."
                 ),
+                unsupported_classifier_ran=True,
+                unsupported_classifier_supported=True,
+                unsupported_classifier_reason=rationale or None,
             )
 
     return provisional_decision
@@ -559,6 +592,7 @@ def ask_question_with_trace(
             ),
         ),
         verification=answer.verification,
+        postprocess=getattr(answer, "postprocess", None),
         answer=answer,
     )
     return prepared_request.normalized_question, trace
@@ -1294,6 +1328,7 @@ def build_grounded_synthesis_prompt(
         "Instructions:\n"
         "- Synthesize only claims directly supported by the evidence.\n"
         "- Combine multiple chunks when needed, but do not add outside facts.\n"
+        "- Preserve exact metric names, entities, dates, and periods; do not substitute sibling figures.\n"
         "- If any requested facet lacks support, reply exactly with INSUFFICIENT_SUPPORT.\n"
         "- Prefer a short direct answer over repeating the context.\n"
     )
@@ -1321,6 +1356,7 @@ def build_unsupported_classification_prompt(
         "Instructions:\n"
         "- Decide whether the evidence is sufficient to answer the full question.\n"
         "- Mark it UNSUPPORTED if any requested facet, constraint, number, date, or entity detail is missing.\n"
+        "- For financial or table-style questions, require the exact metric and exact period, not a nearby sibling figure.\n"
         "- Do not infer from nearby or partially matching evidence.\n"
         "- Reply on the first line with exactly SUPPORTED or UNSUPPORTED.\n"
         "- Reply on the second line with a brief reason.\n"
@@ -1350,6 +1386,7 @@ def build_claim_verification_prompt(
         f"{joined_evidence}\n\n"
         "Instructions:\n"
         "- Decide whether the claim is fully supported by the evidence.\n"
+        "- Reject the claim if the evidence only supports a related metric, date, period, or entity.\n"
         "- Reply on the first line with exactly SUPPORTED or UNSUPPORTED.\n"
         "- Reply on the second line with a brief reason.\n"
     )
@@ -1379,6 +1416,7 @@ def build_answer_repair_prompt(
         "Instructions:\n"
         "- Rewrite the supported claims into one concise grounded answer.\n"
         "- Use only the supported claims listed above.\n"
+        "- Preserve exact figures, units, and periods from the supported claims.\n"
         "- Do not add caveats, speculation, or unsupported details.\n"
         "- Keep the answer direct and factual.\n"
         "- If the supported claims are still insufficient to answer, reply exactly with INSUFFICIENT_SUPPORT.\n"
@@ -2538,8 +2576,20 @@ def _finalize_generated_answer(
     fallback_mode: str,
     verification_provider: OpenAICompatibleAnswerProvider | None = None,
 ) -> GeneratedAnswer:
+    facets = _build_question_facets(question)
+    support_threshold = _question_support_threshold(question, facets)
     if not answer.supported or is_unsupported_answer_text(answer.answer_text):
-        return _unsupported_answer(confidence=0.74, support_score=0.0)
+        return _unsupported_answer(
+            confidence=0.74,
+            support_score=0.0,
+            postprocess=AnswerPostprocessTrace(
+                question_coverage_score=0.0,
+                support_threshold=support_threshold,
+                repair_attempted=False,
+                repair_applied=False,
+                repair_reason="Generated answer was empty or explicitly unsupported.",
+            ),
+        )
 
     finalized_answer = replace(
         answer,
@@ -2555,6 +2605,11 @@ def _finalize_generated_answer(
         answer_text=finalized_answer.answer_text,
         citations=finalized_answer.citations,
     )
+    question_coverage_score = _compute_question_coverage_score(
+        question=question,
+        answer_text=finalized_answer.answer_text,
+        citations=finalized_answer.citations,
+    )
     verification = verify_answer_claims(
         question=question,
         answer_text=finalized_answer.answer_text,
@@ -2565,7 +2620,8 @@ def _finalize_generated_answer(
     verification_score = verification.average_claim_score
     support_score = min(
         1.0,
-        support_score * 0.35
+        support_score * 0.25
+        + question_coverage_score * 0.15
         + verification_score * 0.65,
     )
     finalized_answer = replace(
@@ -2575,8 +2631,20 @@ def _finalize_generated_answer(
         confidence=min(0.98, max(0.35, 0.45 + support_score * 0.5)),
         support_score=support_score,
         verification=verification,
+        postprocess=AnswerPostprocessTrace(
+            question_coverage_score=question_coverage_score,
+            support_threshold=support_threshold,
+            repair_attempted=False,
+            repair_applied=False,
+            claim_count=verification.claim_count,
+            supported_claim_count=verification.supported_claim_count,
+        ),
     )
-    if support_score >= 0.45 and verification.verified:
+    if (
+        support_score >= support_threshold
+        and question_coverage_score >= support_threshold
+        and verification.verified
+    ):
         return finalized_answer
 
     repaired_answer = _repair_partially_supported_answer(
@@ -2593,6 +2661,15 @@ def _finalize_generated_answer(
         confidence=0.7,
         support_score=support_score,
         verification=verification,
+        postprocess=AnswerPostprocessTrace(
+            question_coverage_score=question_coverage_score,
+            support_threshold=support_threshold,
+            repair_attempted=True,
+            repair_applied=False,
+            repair_reason="Final answer did not clear the support or coverage threshold.",
+            claim_count=verification.claim_count,
+            supported_claim_count=verification.supported_claim_count,
+        ),
     )
 
 
@@ -2613,6 +2690,7 @@ def _unsupported_answer(
     confidence: float = 0.72,
     support_score: float = 0.0,
     verification: AnswerVerification | None = None,
+    postprocess: AnswerPostprocessTrace | None = None,
 ) -> GeneratedAnswer:
     return GeneratedAnswer(
         answer_text=(
@@ -2625,6 +2703,7 @@ def _unsupported_answer(
         confidence=confidence,
         support_score=support_score,
         verification=verification,
+        postprocess=postprocess,
     )
 
 
@@ -2636,6 +2715,8 @@ def _repair_partially_supported_answer(
     fallback_mode: str,
     verification_provider: OpenAICompatibleAnswerProvider | None = None,
 ) -> GeneratedAnswer | None:
+    facets = _build_question_facets(question)
+    support_threshold = _question_support_threshold(question, facets)
     verification = answer.verification
     if verification is None or verification.verified:
         return None
@@ -2674,11 +2755,22 @@ def _repair_partially_supported_answer(
         answer_text=repaired_text,
         citations=repaired_citations,
     )
+    repaired_question_coverage = _compute_question_coverage_score(
+        question=question,
+        answer_text=repaired_text,
+        citations=repaired_citations,
+    )
     repaired_support_score = min(
         1.0,
-        repaired_support_score * 0.35 + repaired_verification.average_claim_score * 0.65,
+        repaired_support_score * 0.25
+        + repaired_question_coverage * 0.15
+        + repaired_verification.average_claim_score * 0.6,
     )
-    if repaired_support_score < 0.45 or not repaired_verification.verified:
+    if (
+        repaired_support_score < support_threshold
+        or repaired_question_coverage < support_threshold
+        or not repaired_verification.verified
+    ):
         return None
 
     confidence = min(0.94, max(0.32, 0.4 + repaired_support_score * 0.45))
@@ -2690,6 +2782,15 @@ def _repair_partially_supported_answer(
         confidence=confidence,
         support_score=repaired_support_score,
         verification=repaired_verification,
+        postprocess=AnswerPostprocessTrace(
+            question_coverage_score=repaired_question_coverage,
+            support_threshold=support_threshold,
+            repair_attempted=True,
+            repair_applied=True,
+            repair_reason="Unsupported claims were removed and the repaired answer cleared verification.",
+            claim_count=repaired_verification.claim_count,
+            supported_claim_count=repaired_verification.supported_claim_count,
+        ),
     )
 
 
@@ -2738,6 +2839,89 @@ def _ensure_terminal_punctuation(text: str) -> str:
     return f"{stripped}."
 
 
+def _question_requires_strict_support(question: str, facets: list[QuestionFacet]) -> bool:
+    return (
+        len(facets) > 1
+        or _question_has_numeric_intent(question)
+        or has_explicit_date(question)
+        or any(facet.constraint_terms for facet in facets)
+    )
+
+
+def _question_support_threshold(question: str, facets: list[QuestionFacet]) -> float:
+    return 0.58 if _question_requires_strict_support(question, facets) else 0.45
+
+
+def _question_metric_support_score(*, question: str, texts: list[str]) -> float:
+    if not texts:
+        return 0.0
+
+    metrics = _question_metric_phrases(question)
+    if not metrics:
+        return 1.0
+
+    matched_metrics = sum(
+        1 for metric in metrics if any(metric in text.lower() for text in texts)
+    )
+    return matched_metrics / len(metrics)
+
+
+def _compute_question_coverage_score(
+    *,
+    question: str,
+    answer_text: str,
+    citations: list[RetrievedChunkContext],
+) -> float:
+    facets = _build_question_facets(question)
+    support_terms = _tokenize(answer_text)
+    for citation in citations:
+        support_terms.update(_tokenize(citation.text))
+    support_texts = [answer_text, *(citation.text for citation in citations)]
+    metric_support = _question_metric_support_score(question=question, texts=support_texts)
+    numeric_support = (
+        1.0
+        if not _question_has_numeric_intent(question)
+        else 1.0
+        if any(re.search(r"\d", text) for text in support_texts)
+        else 0.0
+    )
+    facet_scores: list[float] = []
+    for facet in facets:
+        facet_terms = facet.terms | facet.anchor_terms | facet.constraint_terms
+        if not facet_terms:
+            continue
+        matched_terms = facet_terms & support_terms
+        matched_anchor_terms = facet.anchor_terms & support_terms
+        matched_constraint_terms = facet.constraint_terms & support_terms
+        coverage = len(matched_terms) / max(len(facet_terms), 1)
+        anchor_score = (
+            len(matched_anchor_terms) / max(len(facet.anchor_terms), 1)
+            if facet.anchor_terms
+            else coverage
+        )
+        constraint_score = (
+            len(matched_constraint_terms) / max(len(facet.constraint_terms), 1)
+            if facet.constraint_terms
+            else coverage
+        )
+        facet_scores.append(
+            min(
+                1.0,
+                coverage * 0.45
+                + anchor_score * 0.3
+                + constraint_score * 0.25,
+            )
+        )
+
+    facet_score = sum(facet_scores) / len(facet_scores) if facet_scores else 0.0
+    return min(
+        1.0,
+        facet_score * 0.65
+        + metric_support * 0.2
+        + numeric_support * 0.15,
+    )
+
+
 def _compute_support_score(
     *,
     question: str,
@@ -2768,6 +2952,54 @@ def _compute_support_score(
         + answer_overlap * 0.25
         + min(average_citation_score, 1.0) * 0.15
         + citation_count_bonus * 0.1,
+    )
+
+
+def _compute_question_support_score(
+    *,
+    question: str,
+    facets: list[QuestionFacet],
+    contexts: list[RetrievedChunkContext],
+) -> float:
+    if not contexts:
+        return 0.0
+
+    context_terms = set().union(*(_tokenize(context.text) for context in contexts))
+    metric_match = _question_metric_support_score(question=question, texts=[context.text for context in contexts])
+    facet_scores: list[float] = []
+    for facet in facets:
+        facet_terms = facet.terms | facet.anchor_terms | facet.constraint_terms
+        if not facet_terms:
+            continue
+        matched_anchor_terms = facet.anchor_terms & context_terms
+        matched_constraint_terms = facet.constraint_terms & context_terms
+        coverage = len(facet_terms & context_terms) / max(len(facet_terms), 1)
+        anchor_score = (
+            len(matched_anchor_terms) / max(len(facet.anchor_terms), 1)
+            if facet.anchor_terms
+            else coverage
+        )
+        constraint_score = (
+            len(matched_constraint_terms) / max(len(facet.constraint_terms), 1)
+            if facet.constraint_terms
+            else coverage
+        )
+        facet_scores.append(
+            min(
+                1.0,
+                coverage * 0.5
+                + anchor_score * 0.3
+                + constraint_score * 0.2,
+            )
+        )
+
+    base_score = sum(facet_scores) / len(facet_scores) if facet_scores else 0.0
+    average_context_score = sum(max(context.score, 0.0) for context in contexts) / len(contexts)
+    return min(
+        1.0,
+        base_score * 0.65
+        + min(average_context_score, 1.0) * 0.2
+        + metric_match * 0.15,
     )
 
 

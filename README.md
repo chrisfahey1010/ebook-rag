@@ -154,6 +154,12 @@ Current limitations:
 - the Amazon earnings benchmark is still exposing structured-evidence and unsupported-answer gaps in the current code path
 - the benchmark suite now includes a broader local real-document fixture set in `apps/api/benchmarks/local/`, including `hells_angels.pdf`, `amazon_quarterly_earnings2025Q4.pdf`, `john_deere_mower_manual.pdf`, `infinite_jest.pdf`, `qwen3_technical_report.pdf`, and `gpt-5-4_thinking_card.pdf`, but fixture breadth is no longer the main issue; the main issue is turning the strong retrieval stack into a stronger grounded answer pipeline
 
+Current benchmark status is intentionally split:
+
+- stable gating suites: `john_deere_mower_manual`, `qwen3_technical_report`, `gpt_5_4_thinking_card`, and `citation_granularity`
+- exploratory long-form coverage: `infinite_jest`, plus exploratory checks inside `hells_angels`
+- tracked but not release-blocking yet: `amazon_earnings`, and the remaining long-form misses in `hells_angels`
+
 ## Local model direction
 
 The intended V1 direction is:
@@ -187,6 +193,8 @@ Reprocessing reruns extraction and embedding generation for an existing document
 Retrieval accepts a natural-language query, embeds it, blends dense and lexical candidates, reranks them, and returns ranked matches with document metadata, page spans, chunk provenance, and dense, lexical, hybrid, rerank, and final scores. The ranking path now gives extra weight to full anchor/constraint matches for low-frequency entity and date questions so generic date mentions are less likely to outrank exact fact passages. If a configured reranker backend fails at runtime, retrieval falls back to the local token-overlap reranker so the request still completes.
 
 QA builds on retrieval and returns a grounded answer plus structured citations. Before prompt construction, the QA layer now deduplicates near-identical retrieval hits, pulls in adjacent chunks when budget allows, and limits the final context window. The default local answerer is conservative and can decline to answer when the indexed content does not provide enough support. For composite questions, the extractive path now requires support for each requested facet instead of answering from only the strongest partial match. Citation selection is now evidence-aware instead of mirroring the whole selected context window, and returned citation text is narrowed to the most relevant supporting sentence when possible. Citation ranking also uses the original question terms, answer-type cues, and narrower page spans to break ties when multiple passages contain similar answer text. Multi-sentence answers now attribute citations sentence-by-sentence so composite responses can cite only the chunks that actually support each part. After answer generation, the QA layer now also verifies each answer claim against the selected evidence, can optionally use the configured OpenAI-compatible local model as a conservative verifier, and can repair partially supported generated answers by trimming or rewriting them down to verified supported claims before finally downgrading to unsupported when necessary. A configurable OpenAI-compatible provider path is also available for model-backed generation.
+
+`include_trace=true` now also exposes router support scores, unsupported-classifier decisions, question-coverage postprocessing, and whether partial-answer repair was attempted or applied, so benchmark failures can be tied back to specific QA decisions instead of treated as generic answer misses.
 
 Provider selection is environment-driven. Embeddings, reranking, and answer generation can now be configured independently for local-only, hosted, or mixed setups.
 

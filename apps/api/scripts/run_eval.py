@@ -339,6 +339,7 @@ def build_question_result(
     expected_citation_texts: list[str],
     citation_text_match_mode: str,
     regression_tier: str,
+    trace_summary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     retrieval_hit = page_expectation_hit(
         expected_pages=expected_citation_pages,
@@ -358,7 +359,7 @@ def build_question_result(
     support_hit = supported == expected_supported
     answer_hit = not answer_terms or any(term in answer.lower() for term in answer_terms)
 
-    return {
+    result = {
         "document": document_name,
         "question": question,
         "expected_supported": expected_supported,
@@ -379,6 +380,9 @@ def build_question_result(
         "latency_ms": latency_ms,
         "answer_preview": answer[:240],
     }
+    if trace_summary:
+        result.update(trace_summary)
+    return result
 
 
 def summarize_results(
@@ -862,6 +866,7 @@ def run_benchmark(
                     response.raise_for_status()
                     payload = response.json()
                     trace = payload["trace"]
+                    trace_postprocess = trace.get("postprocess") or {}
 
                     expected_pages = set(question_case.get("expected_citation_pages", []))
                     retrieved_pages = set().union(
@@ -929,6 +934,28 @@ def run_benchmark(
                             expected_citation_texts=expected_citation_texts,
                             citation_text_match_mode=citation_text_match_mode,
                             regression_tier=regression_tier,
+                            trace_summary={
+                                "answer_mode": payload.get("answer_mode"),
+                                "router_answer_mode": trace["question_router"].get("answer_mode"),
+                                "router_reason": trace["question_router"].get("reason"),
+                                "router_heuristic_support_score": trace["question_router"].get(
+                                    "heuristic_support_score"
+                                ),
+                                "unsupported_classifier_ran": trace["question_router"].get(
+                                    "unsupported_classifier_ran"
+                                ),
+                                "unsupported_classifier_supported": trace["question_router"].get(
+                                    "unsupported_classifier_supported"
+                                ),
+                                "unsupported_classifier_reason": trace["question_router"].get(
+                                    "unsupported_classifier_reason"
+                                ),
+                                "question_coverage_score": trace_postprocess.get("question_coverage_score"),
+                                "support_threshold": trace_postprocess.get("support_threshold"),
+                                "repair_attempted": trace_postprocess.get("repair_attempted"),
+                                "repair_applied": trace_postprocess.get("repair_applied"),
+                                "repair_reason": trace_postprocess.get("repair_reason"),
+                            },
                         )
                     )
 

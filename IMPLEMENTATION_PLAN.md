@@ -388,6 +388,12 @@ That means the next follow-up work should narrow to:
 2. benchmark the new router/support thresholds against Amazon and the stable regression suites
 3. tune and benchmark the new partial-answer repair path on Amazon and other citation-sensitive suites
 
+The latest implementation follow-up for that slice should now be:
+
+1. use the richer QA trace fields to inspect router support scores, unsupported-classifier decisions, question-coverage scores, and repair outcomes on each benchmark miss
+2. keep the stricter question-coverage threshold for constrained numeric/date questions so partially supported financial answers fall back to `unsupported` instead of surviving repair
+3. rerun `amazon_earnings` plus the stable gating suites and treat any new regressions as answer-layer bugs first, not retrieval-tuning invitations
+
 ## Resolved decisions
 
 These are the working decisions for V1:

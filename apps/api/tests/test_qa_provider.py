@@ -113,6 +113,7 @@ def test_build_grounded_synthesis_prompt_calls_out_multi_evidence_behavior() -> 
     )
 
     assert "Synthesize only claims directly supported by the evidence." in prompt
+    assert "Preserve exact metric names, entities, dates, and periods" in prompt
     assert "If any requested facet lacks support" in prompt
 
 
@@ -164,6 +165,7 @@ def test_build_answer_repair_prompt_mentions_supported_claims_only() -> None:
 
     assert "Supported claims:" in prompt
     assert "Use only the supported claims listed above." in prompt
+    assert "Preserve exact figures, units, and periods" in prompt
     assert "Inspect the fuel lines before launch." in prompt
 
 
@@ -187,6 +189,7 @@ def test_build_unsupported_classification_prompt_requires_full_question_support(
 
     assert "Decide whether the evidence is sufficient to answer the full question." in prompt
     assert "Mark it UNSUPPORTED if any requested facet" in prompt
+    assert "require the exact metric and exact period" in prompt
     assert "Reply on the first line with exactly SUPPORTED or UNSUPPORTED." in prompt
 
 
@@ -478,6 +481,9 @@ def test_finalize_generated_answer_repairs_mixed_support_answer() -> None:
     assert finalized.verification.verified is True
     assert finalized.answer_text == "Inspect the fuel lines before launch."
     assert len(finalized.citations) == 1
+    assert finalized.postprocess is not None
+    assert finalized.postprocess.repair_attempted is True
+    assert finalized.postprocess.repair_applied is True
 
 
 def test_finalize_generated_answer_returns_unsupported_when_repair_is_still_weak() -> None:
@@ -511,6 +517,9 @@ def test_finalize_generated_answer_returns_unsupported_when_repair_is_still_weak
     assert finalized.supported is False
     assert finalized.answer_mode == "unsupported"
     assert finalized.verification is not None
+    assert finalized.postprocess is not None
+    assert finalized.postprocess.repair_attempted is True
+    assert finalized.postprocess.repair_applied is False
 
 
 def test_openai_compatible_provider_maps_insufficient_support(monkeypatch) -> None:

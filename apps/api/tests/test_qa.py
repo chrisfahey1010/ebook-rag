@@ -153,10 +153,14 @@ def test_qa_answer_can_include_trace_payload(
     assert payload["trace"]["answer_provider"] == "ExtractiveAnswerProvider"
     assert payload["trace"]["answer_mode"] == "extractive"
     assert payload["trace"]["question_router"]["answer_mode"] == "extractive"
+    assert payload["trace"]["question_router"]["heuristic_support_score"] >= 0
+    assert payload["trace"]["question_router"]["unsupported_classifier_ran"] is False
     assert payload["trace"]["runtime"]["embedding_provider"] == "hashing"
     assert payload["trace"]["runtime"]["reranker_provider"] == "token_overlap"
     assert payload["trace"]["runtime"]["answer_provider"] == "extractive"
     assert payload["trace"]["verification"]["verified"] is True
+    assert payload["trace"]["postprocess"]["question_coverage_score"] >= 0
+    assert payload["trace"]["postprocess"]["support_threshold"] >= 0.45
     assert payload["trace"]["verification"]["claims"][0]["citations"]
     assert payload["trace"]["retrieved_chunks"]
     assert payload["trace"]["selected_contexts"]

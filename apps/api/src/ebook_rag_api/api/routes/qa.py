@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from ebook_rag_api.db import get_db_session
 from ebook_rag_api.schemas.qa import (
+    QAAnswerPostprocessTrace,
     QAAnswerVerification,
     QACitation,
     QAClaimVerification,
@@ -19,6 +20,7 @@ from ebook_rag_api.schemas.qa import (
     QATraceChunk,
 )
 from ebook_rag_api.services.qa import (
+    AnswerPostprocessTrace as ServiceAnswerPostprocessTrace,
     AnswerVerification as ServiceAnswerVerification,
     ClaimVerification as ServiceClaimVerification,
     QATrace as ServiceQATrace,
@@ -101,6 +103,22 @@ def _serialize_answer_verification(
     )
 
 
+def _serialize_answer_postprocess(
+    postprocess: ServiceAnswerPostprocessTrace | None,
+) -> QAAnswerPostprocessTrace | None:
+    if postprocess is None:
+        return None
+    return QAAnswerPostprocessTrace(
+        question_coverage_score=postprocess.question_coverage_score,
+        support_threshold=postprocess.support_threshold,
+        repair_attempted=postprocess.repair_attempted,
+        repair_applied=postprocess.repair_applied,
+        repair_reason=postprocess.repair_reason,
+        claim_count=postprocess.claim_count,
+        supported_claim_count=postprocess.supported_claim_count,
+    )
+
+
 def _build_qa_response(
     *,
     normalized_question: str,
@@ -128,6 +146,10 @@ def _build_qa_response(
                     facet_count=qa_trace.question_router.facet_count,
                     context_count=qa_trace.question_router.context_count,
                     should_use_generative=qa_trace.question_router.should_use_generative,
+                    heuristic_support_score=qa_trace.question_router.heuristic_support_score,
+                    unsupported_classifier_ran=qa_trace.question_router.unsupported_classifier_ran,
+                    unsupported_classifier_supported=qa_trace.question_router.unsupported_classifier_supported,
+                    unsupported_classifier_reason=qa_trace.question_router.unsupported_classifier_reason,
                 ),
                 runtime=QARuntimeMetadata(
                     embedding_provider=qa_trace.runtime.embedding_provider,
@@ -149,6 +171,7 @@ def _build_qa_response(
                     total_ms=qa_trace.timings.total_ms,
                 ),
                 verification=_serialize_answer_verification(qa_trace.verification),
+                postprocess=_serialize_answer_postprocess(qa_trace.postprocess),
             )
             if include_trace
             else None
@@ -229,6 +252,7 @@ def answer_question_stream(
                     ),
                 ),
                 verification=final_answer.verification,
+                postprocess=final_answer.postprocess,
                 answer=final_answer,
             )
             response = _build_qa_response(

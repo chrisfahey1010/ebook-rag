@@ -69,6 +69,10 @@ class QAQuestionRouter(BaseModel):
     facet_count: int
     context_count: int
     should_use_generative: bool
+    heuristic_support_score: float
+    unsupported_classifier_ran: bool
+    unsupported_classifier_supported: bool | None
+    unsupported_classifier_reason: str | None
 
 
 class QARuntimeMetadata(BaseModel):
@@ -99,6 +103,16 @@ class QAAnswerVerification(BaseModel):
     claims: list[QAClaimVerification]
 
 
+class QAAnswerPostprocessTrace(BaseModel):
+    question_coverage_score: float
+    support_threshold: float
+    repair_attempted: bool
+    repair_applied: bool
+    repair_reason: str | None
+    claim_count: int
+    supported_claim_count: int
+
+
 class QATrace(BaseModel):
     answer_provider: str
     answer_mode: str
@@ -110,3 +124,4 @@ class QATrace(BaseModel):
     prompt_snapshot: str
     timings: QATimingBreakdown
     verification: QAAnswerVerification | None
+    postprocess: QAAnswerPostprocessTrace | None
