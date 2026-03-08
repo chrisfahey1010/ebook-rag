@@ -31,7 +31,8 @@ The main gap is that several critical pieces are still baseline implementations:
   - answer generation still needs clearer local-runtime presets and documentation
 - retrieval quality is now in a satisfactory V1 state on the current benchmark set:
   - the `hells_angels.pdf` long-form benchmark now passes on retrieval hit rate, citation hit rate, answer match rate, support accuracy, and unsupported precision
-  - the repo now also includes `amazon_quarterly_earnings2025Q4.pdf` as an additional real-world benchmark fixture, but the current retrieval and chunking guidance has not been tuned against it yet
+  - the repo now also includes `amazon_earnings_eval.json`, which exercises `amazon_quarterly_earnings2025Q4.pdf` as a shorter real-world financial-report benchmark
+  - that Amazon benchmark currently shows strong retrieval coverage but weak answer/citation extraction on numeric and table-like passages, so the next quality pass should target the QA layer rather than broad retrieval changes
   - further retrieval tuning should be driven by new benchmark coverage or clear regressions, not by open-ended score chasing
 - context assembly is improved and benchmark-informed, but still heuristic
 - changing embedding dimensions now requires a migration plus document reprocessing, so the reindex workflow needs to stay explicit in docs and tooling
@@ -386,15 +387,18 @@ The project should be considered V1 complete when all of the following are true:
 
 The best next coding slice is now:
 
-1. broaden the benchmark set further with more real-document fixtures
-   - add harder multi-page citation and unsupported-answer cases beyond the current curated and `hells_angels` coverage
-   - turn the newly added Amazon quarterly earnings report into an explicit benchmark file with targeted numeric, citation-granularity, and unsupported-answer cases
-   - reduce dependence on synthetic fixtures when judging chunking or retrieval changes
+1. improve answer and citation extraction for numeric and table-like passages
+   - use `amazon_earnings_eval.json` as the regression harness for earnings-release-style documents
+   - tighten extractive answer selection so it prefers the right sentence/span within the correct retrieved page neighborhood
+   - improve citation excerpt selection on table-heavy pages where the current QA layer cites the right page but the wrong line
 2. promote selected exploratory citation-granularity checks into the gating lane
    - use the new excerpt-level benchmark coverage to identify stable long-form checks
    - only gate on cases that are repeatable enough to avoid noisy regressions
-3. close the remaining Milestone 1/7 documentation gap
+3. keep broadening the benchmark set with more real-document fixtures
+   - add harder multi-page citation and unsupported-answer cases beyond the current curated, `hells_angels`, and Amazon earnings coverage
+   - reduce dependence on synthetic fixtures when judging chunking or retrieval changes
+4. close the remaining Milestone 1/7 documentation gap
    - document recommended local embedding, reranker, and generation model combinations more explicitly
    - keep fully local, mixed, and hosted OpenAI-compatible setups easy to discover from the docs
 
-The chunking decision itself is now benchmark-backed for the current fixture set, normalization now preserves heading blocks while collapsing soft-wrapped body lines more cleanly, chunk provenance now includes character-span offsets for page-local inspection, and the benchmark workflow now distinguishes page-level citation success from excerpt-level citation accuracy. The repo now also includes `amazon_quarterly_earnings2025Q4.pdf` as an extra real-world fixture, but the current benchmark conclusions should still be read as tuned primarily against the curated set plus `hells_angels` until that report has a dedicated eval file and regression expectations. The next step should therefore focus on broader real-document eval coverage and graduating stable excerpt-level checks into the regression lane, while using the richer provenance to decide whether another retrieval or citation-selection change is justified.
+The chunking decision itself is now benchmark-backed for the current fixture set, normalization now preserves heading blocks while collapsing soft-wrapped body lines more cleanly, chunk provenance now includes character-span offsets for page-local inspection, and the benchmark workflow now distinguishes page-level citation success from excerpt-level citation accuracy. The Amazon earnings benchmark is now in place and confirms that the retriever can usually find the correct page on a shorter financial report, but the QA layer still struggles to select the right answer span and citation excerpt on numeric and table-like content. The next step should therefore focus on QA extraction quality for those passages, while continuing to graduate stable excerpt-level checks into the regression lane and expand real-document benchmark breadth.

@@ -71,6 +71,15 @@ uv run python scripts/run_eval.py \
   --output-markdown benchmarks/results/citation_granularity_latest.md
 ```
 
+To run the real-document Amazon earnings benchmark:
+
+```bash
+uv run python scripts/run_eval.py \
+  --benchmark benchmarks/amazon_earnings_eval.json \
+  --output-json benchmarks/results/amazon_earnings_latest.json \
+  --output-markdown benchmarks/results/amazon_earnings_latest.md
+```
+
 To compare the built-in chunking presets and emit a recommendation report:
 
 ```bash

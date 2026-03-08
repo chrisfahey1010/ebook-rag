@@ -1,5 +1,6 @@
-from pathlib import Path
 import importlib.util
+import json
+from pathlib import Path
 
 import pytest
 
@@ -329,6 +330,42 @@ def test_load_benchmark_document_bytes_requires_source() -> None:
         )
         is True
     )
+
+
+def test_benchmark_fixtures_have_valid_sources_and_question_metadata() -> None:
+    benchmark_dir = Path(__file__).resolve().parent.parent / "benchmarks"
+    benchmark_files = sorted(
+        path for path in benchmark_dir.glob("*.json") if path.parent.name != "results"
+    )
+
+    assert benchmark_files
+
+    for benchmark_file in benchmark_files:
+        payload = json.loads(benchmark_file.read_text())
+        assert payload["name"]
+        assert payload["documents"]
+
+        for document_case in payload["documents"]:
+            has_pages = bool(document_case.get("pages"))
+            has_source_pdf = bool(document_case.get("source_pdf"))
+            assert has_pages or has_source_pdf
+
+            if has_source_pdf:
+                resolved_source = benchmark_dir.parent / document_case["source_pdf"]
+                assert resolved_source.exists(), f"missing source_pdf for {benchmark_file.name}"
+
+            for question_case in document_case["questions"]:
+                assert isinstance(question_case["expected_supported"], bool)
+                assert isinstance(question_case["expected_citation_pages"], list)
+                assert question_case.get("citation_match_mode", "any") in {"any", "all"}
+                assert question_case.get("citation_text_match_mode", "any") in {
+                    "any",
+                    "all",
+                }
+                assert question_case.get("regression_tier", "gating") in {
+                    "gating",
+                    "exploratory",
+                }
 
 
 def test_resolve_chunking_config_applies_preset_and_overrides() -> None:

@@ -1,0 +1,96 @@
+{
+  "name": "amazon-earnings-eval",
+  "documents": [
+    {
+      "filename": "amazon_quarterly_earnings2025Q4.pdf",
+      "source_pdf": "benchmarks/local/amazon_quarterly_earnings2025Q4.pdf",
+      "questions": [
+        {
+          "question": "When did Amazon announce these fourth quarter results?",
+          "expected_supported": true,
+          "expected_answer_contains": ["february 5, 2026"],
+          "expected_citation_pages": [1],
+          "expected_citation_text_contains": ["February 5, 2026"]
+        },
+        {
+          "question": "What were Amazon's net sales in the fourth quarter of 2025?",
+          "expected_supported": true,
+          "expected_answer_contains": ["213.4 billion"],
+          "expected_citation_pages": [1],
+          "expected_citation_text_contains": ["Net sales increased 14% to $213.4 billion"]
+        },
+        {
+          "question": "Which segment's sales increased 24% year-over-year in the fourth quarter of 2025?",
+          "expected_supported": true,
+          "expected_answer_contains": ["aws"],
+          "expected_citation_pages": [1],
+          "expected_citation_text_contains": ["AWS segment sales increased 24% year-over-year"]
+        },
+        {
+          "question": "Why did free cash flow decrease for the trailing twelve months ended December 31, 2025?",
+          "expected_supported": true,
+          "expected_answer_contains": ["investments in artificial intelligence"],
+          "expected_citation_pages": [2],
+          "expected_citation_text_contains": [
+            "driven primarily by a year-over-year increase of $50.7 billion in purchases of property and equipment",
+            "primarily reflects investments in artificial intelligence"
+          ],
+          "citation_text_match_mode": "all"
+        },
+        {
+          "question": "How much in capital expenditures does Amazon expect to invest across the company in 2026?",
+          "expected_supported": true,
+          "expected_answer_contains": ["200 billion"],
+          "expected_citation_pages": [2],
+          "expected_citation_text_contains": ["we expect to invest about $200 billion in capital expenditures across Amazon in 2026"]
+        },
+        {
+          "question": "What net sales range did Amazon guide for the first quarter of 2026?",
+          "expected_supported": true,
+          "expected_answer_contains": ["173.5 billion", "178.5 billion"],
+          "expected_citation_pages": [4],
+          "expected_citation_text_contains": ["Net sales are expected to be between $173.5 billion and $178.5 billion"],
+          "citation_text_match_mode": "all"
+        },
+        {
+          "question": "How fast did AWS sales grow in the fourth quarter of 2025, and how much capital expenditure does Amazon expect in 2026?",
+          "expected_supported": true,
+          "expected_answer_contains": ["24%", "200 billion"],
+          "expected_citation_pages": [1, 2],
+          "citation_match_mode": "all",
+          "expected_citation_text_contains": [
+            "AWS segment sales increased 24% year-over-year",
+            "we expect to invest about $200 billion in capital expenditures across Amazon in 2026"
+          ],
+          "citation_text_match_mode": "all"
+        },
+        {
+          "question": "What does the release say about Amazon starting a dividend program in 2026?",
+          "expected_supported": false,
+          "expected_citation_pages": []
+        },
+        {
+          "question": "What was trailing-twelve-month free cash flow in Q4 2025?",
+          "expected_supported": true,
+          "expected_answer_contains": ["11,194"],
+          "expected_citation_pages": [11],
+          "expected_citation_text_contains": ["Free cash flow -- TTM (1)", "$  11,194"],
+          "citation_text_match_mode": "all",
+          "regression_tier": "exploratory"
+        },
+        {
+          "question": "How many employees did Amazon report in Q4 2025?",
+          "expected_supported": true,
+          "expected_answer_contains": ["1,576,000"],
+          "expected_citation_pages": [13],
+          "expected_citation_text_contains": [
+            "Employees (full-time and part-time; excludes contractors & temporary personnel)",
+            "1,576,000"
+          ],
+          "citation_text_match_mode": "all",
+          "regression_tier": "exploratory"
+        }
+      ]
+    }
+  ]
+}
