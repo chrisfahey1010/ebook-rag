@@ -32,6 +32,7 @@ The main gap is that several critical pieces are still baseline implementations:
 - retrieval quality is now in a satisfactory V1 state on the current benchmark set:
   - the `hells_angels.pdf` long-form benchmark now passes on retrieval hit rate, citation hit rate, answer match rate, support accuracy, and unsupported precision
   - the repo now also includes `amazon_earnings_eval.json`, which exercises `amazon_quarterly_earnings2025Q4.pdf` as a shorter real-world financial-report benchmark
+  - the local fixture library under `apps/api/benchmarks/local/` has also expanded with `john_deere_mower_manual.pdf`, `infinite_jest.pdf`, `qwen3_technical_report.pdf`, and `gpt-5-4_thinking_card.pdf` to broaden future eval coverage across manuals, very long prose, technical reports, and model/system-card style documents
   - the latest QA passes improved structured-numeric citation evidence coverage on that Amazon benchmark, fixed the prior `net sales` versus `operating income` guidance confusion, closed the exploratory employee-count row on page 13 by recovering split same-page table rows, and taught the extractive scorer to prefer the exact page-11 free-cash-flow metric row over the narrative page-2 summary for exact-value questions
   - the March 8, 2026 citation-assembly pass closed the remaining Amazon-specific narrative citation-evidence gap for the "why did free cash flow decrease" question, so the benchmark now clears its current gating lane end to end
   - further retrieval tuning should be driven by new benchmark coverage or clear regressions, not by open-ended score chasing
@@ -39,7 +40,7 @@ The main gap is that several critical pieces are still baseline implementations:
 - changing embedding dimensions now requires a migration plus document reprocessing, so the reindex workflow needs to stay explicit in docs and tooling
 - ingestion is still synchronous, even though status and reprocessing APIs from the spec are now in place
 - evaluation now includes saved JSON/Markdown benchmark artifacts, baseline comparison, a broader curated local fixture, a real-book long-form benchmark, and additional debug routes
-- the local benchmark fixture set now also includes a shorter real-world quarterly earnings report to expand future citation and unsupported-answer coverage beyond book-style PDFs
+- the local benchmark fixture set now spans book-style prose, a quarterly earnings report, an equipment manual, a long literary ebook, a technical model report, and a model/system-card style document to expand future citation and unsupported-answer coverage beyond the original book-focused cases
 - the remaining quality risk is benchmark breadth rather than the specific long-document misses that were driving recent tuning loops
 - ingestion now persists the chunking configuration used for each document, stores per-chunk provenance metadata for debug inspection, and exposes reprocessing/status controls in the UI
 - chunk sizing is now configurable and benchmarkable through the eval runner, but the chosen defaults are still heuristic rather than benchmark-locked
@@ -278,6 +279,7 @@ This project should be able to prove quality improvements, not just demonstrate 
   - `POST /api/debug/rerank`
 - remaining:
   - keep expanding the benchmark dataset toward harder multi-page citation and unsupported-answer cases
+  - convert the newly added local PDFs into dedicated benchmark JSONs so each document class contributes repeatable regression coverage instead of only expanding the fixture pool on disk
   - keep refining which long-form citation-granularity checks should graduate from exploratory to regression-gating
 - persist or snapshot benchmark results so runs are comparable over time
 - optionally add a simple benchmark report artifact in JSON or Markdown
@@ -390,6 +392,7 @@ The best next coding slice is now:
 
 1. keep broadening the benchmark set with more real-document fixtures
    - add harder multi-page citation and unsupported-answer cases beyond the current curated, `hells_angels`, and Amazon earnings coverage
+   - turn the newly added `john_deere_mower_manual.pdf`, `infinite_jest.pdf`, `qwen3_technical_report.pdf`, and `gpt-5-4_thinking_card.pdf` fixtures into benchmark definitions with document-specific question sets
    - reduce dependence on synthetic fixtures when judging chunking or retrieval changes
 2. keep refining which excerpt-level checks should be gating versus exploratory
    - the Amazon earnings benchmark now clears its current gating lane, including the prior multi-snippet narrative citation case
@@ -398,4 +401,4 @@ The best next coding slice is now:
    - document recommended local embedding, reranker, and generation model combinations more explicitly
    - keep fully local, mixed, and hosted OpenAI-compatible setups easy to discover from the docs
 
-The chunking decision itself is now benchmark-backed for the current fixture set, normalization now preserves heading blocks while collapsing soft-wrapped body lines more cleanly, chunk provenance now includes character-span offsets for page-local inspection, and the benchmark workflow now distinguishes page-level citation success from excerpt-level citation accuracy. On the March 8, 2026 run after the citation-assembly pass, the Amazon earnings benchmark reports `answer_match_rate=1.0`, `citation_hit_rate=1.0`, `citation_evidence_hit_rate=1.0`, `support_accuracy=1.0`, and `unsupported_precision=1.0`, while holding `gating_citation_evidence_hit_rate=1.0`. The page-11 free-cash-flow row, the page-13 employee-count row, and the narrative free-cash-flow explanation now all pass in the gating lane. The next step should shift back to expanding real-document benchmark breadth and keeping the gating lane limited to repeatable excerpt-level checks.
+The chunking decision itself is now benchmark-backed for the current fixture set, normalization now preserves heading blocks while collapsing soft-wrapped body lines more cleanly, chunk provenance now includes character-span offsets for page-local inspection, and the benchmark workflow now distinguishes page-level citation success from excerpt-level citation accuracy. On the March 8, 2026 run after the citation-assembly pass, the Amazon earnings benchmark reports `answer_match_rate=1.0`, `citation_hit_rate=1.0`, `citation_evidence_hit_rate=1.0`, `support_accuracy=1.0`, and `unsupported_precision=1.0`, while holding `gating_citation_evidence_hit_rate=1.0`. The page-11 free-cash-flow row, the page-13 employee-count row, and the narrative free-cash-flow explanation now all pass in the gating lane. With the addition of `john_deere_mower_manual.pdf`, `infinite_jest.pdf`, `qwen3_technical_report.pdf`, and `gpt-5-4_thinking_card.pdf` under `apps/api/benchmarks/local/`, the next step should shift from acquiring raw fixture files to converting that broader corpus into repeatable benchmark definitions while keeping the gating lane limited to excerpt checks that stay stable across runs.

@@ -82,6 +82,17 @@ uv run python scripts/run_eval.py \
   --output-markdown benchmarks/results/amazon_earnings_latest.md
 ```
 
+The local real-document fixture library under `benchmarks/local/` now includes:
+
+- `hells_angels.pdf` for long-form narrative nonfiction
+- `amazon_quarterly_earnings2025Q4.pdf` for numeric and financial-report QA
+- `john_deere_mower_manual.pdf` for manual-style spec lookup and procedural retrieval
+- `infinite_jest.pdf` for very long literary prose and front-matter/noise stress
+- `qwen3_technical_report.pdf` for technical-report and acronym-heavy questions
+- `gpt-5-4_thinking_card.pdf` for model/system-card style factual summaries and policy-like constraints
+
+Only part of this corpus is wired into dedicated benchmark JSON files today. The next evaluation step is to add document-specific question sets for the newer fixtures so the broader local corpus becomes repeatable regression coverage rather than an ad hoc source library.
+
 To compare the built-in chunking presets and emit a recommendation report:
 
 ```bash

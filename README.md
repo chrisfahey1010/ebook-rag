@@ -126,6 +126,7 @@ Current implementation includes:
 - browser-side page-local citation inspector with answer-sentence matching and normalized-text offset spans
 - browser-side ingestion status refresh and reprocessing controls
 - an expanded curated eval set for retrieval, unsupported-answer, and citation regression checks
+- an expanded local real-document benchmark fixture library spanning long-form narrative prose, technical reports, model/system cards, financial filings, and equipment manuals
 - Next.js document library, upload flow, QA workspace, citation preview pane, and retrieval inspector
 - root-level docs for local development
 
@@ -136,7 +137,7 @@ Current limitations:
 - context assembly is still heuristic even though answer traces now separate selected context from cited evidence
 - the long-document benchmark now has better unsupported-answer rejection, less metadata/front-matter confusion, and stronger date-specific citation tie-breaking, but it still misses some exact-page citation targets and page-local fact questions on long books
 - nickname-specific and some page-local/date-specific questions in the long-document benchmark can still retrieve the right neighborhood but choose the wrong sentence or citation page
-- the benchmark suite now includes a shorter real-world Amazon earnings benchmark in addition to the curated and `hells_angels` cases; as of the March 8, 2026 citation-assembly pass it now clears the current gating checks, so the main remaining risk there is benchmark breadth rather than the prior multi-snippet narrative miss
+- the benchmark suite now includes a broader local real-document fixture set in `apps/api/benchmarks/local/`, including `hells_angels.pdf`, `amazon_quarterly_earnings2025Q4.pdf`, `john_deere_mower_manual.pdf`, `infinite_jest.pdf`, `qwen3_technical_report.pdf`, and `gpt-5-4_thinking_card.pdf`; however, only part of that corpus is wired into dedicated benchmark JSONs today, so the main remaining risk is still benchmark breadth and coverage depth rather than the prior Amazon-specific narrative citation miss
 
 ## API snapshot
 
@@ -200,12 +201,14 @@ uv run python scripts/run_eval.py \
 
 On the current fixtures, the curated benchmark is effectively a latency tie and slightly favors the large preset, while the long-form `hells_angels` benchmark clearly rejects `large` and recommends the current default config (`target_words=420`, `min_words=180`, `overlap_words=64`, `max_heading_words=12`). Persist those comparison artifacts locally under `apps/api/benchmarks/results/` when you rerun the commands above.
 
-For longer-document tuning, the runner also supports benchmarks that point at a real local PDF via `source_pdf`. The repo includes [`hells_angels_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/hells_angels_eval.json), which exercises selected questions against the full 186-page [`hells_angels.pdf`](/home/chris/repos/ebook-rag/apps/api/benchmarks/local/hells_angels.pdf), and [`amazon_earnings_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/amazon_earnings_eval.json), which exercises a shorter real-world earnings release with numeric, citation-granularity, and unsupported-answer checks against [`amazon_quarterly_earnings2025Q4.pdf`](/home/chris/repos/ebook-rag/apps/api/benchmarks/local/amazon_quarterly_earnings2025Q4.pdf):
+For longer-document tuning, the runner also supports benchmarks that point at a real local PDF via `source_pdf`. The repo currently includes dedicated benchmark definitions for [`hells_angels_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/hells_angels_eval.json), which exercises selected questions against the full 186-page [`hells_angels.pdf`](/home/chris/repos/ebook-rag/apps/api/benchmarks/local/hells_angels.pdf), and [`amazon_earnings_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/amazon_earnings_eval.json), which exercises a shorter real-world earnings release with numeric, citation-granularity, and unsupported-answer checks against [`amazon_quarterly_earnings2025Q4.pdf`](/home/chris/repos/ebook-rag/apps/api/benchmarks/local/amazon_quarterly_earnings2025Q4.pdf):
 
 ```bash
 uv run python scripts/run_eval.py --benchmark benchmarks/hells_angels_eval.json
 uv run python scripts/run_eval.py --benchmark benchmarks/amazon_earnings_eval.json
 ```
+
+The local fixture library under [`apps/api/benchmarks/local/`](/home/chris/repos/ebook-rag/apps/api/benchmarks/local) now also includes [`john_deere_mower_manual.pdf`](/home/chris/repos/ebook-rag/apps/api/benchmarks/local/john_deere_mower_manual.pdf), [`infinite_jest.pdf`](/home/chris/repos/ebook-rag/apps/api/benchmarks/local/infinite_jest.pdf), [`qwen3_technical_report.pdf`](/home/chris/repos/ebook-rag/apps/api/benchmarks/local/qwen3_technical_report.pdf), and [`gpt-5-4_thinking_card.pdf`](/home/chris/repos/ebook-rag/apps/api/benchmarks/local/gpt-5-4_thinking_card.pdf). Those documents broaden future benchmark coverage across equipment manuals, very long literary prose, research-report style technical writing, and model/system-card style factual summaries. As new benchmark JSONs are added, use them to stress exact spec lookup, front-matter noise, long-range narrative retrieval, acronym-heavy technical QA, and citation-granularity behavior beyond the current `hells_angels` and Amazon earnings harnesses.
 
 For page-local citation regression coverage, there is also a focused benchmark with sentence-level citation expectations:
 
