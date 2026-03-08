@@ -8,19 +8,19 @@ from sqlalchemy.orm import Session
 from ebook_rag_api.db import get_db_session
 from ebook_rag_api.schemas.qa import (
     QACitation,
+    QAQuestionRouter,
     QARequest,
     QAResponse,
+    QARuntimeMetadata,
     QATimingBreakdown,
     QATrace,
     QATraceChunk,
 )
 from ebook_rag_api.services.qa import (
-    GeneratedAnswer,
     QATrace as ServiceQATrace,
     ask_question_with_trace,
-    is_unsupported_answer_text,
     prepare_qa_request,
-    select_evidence_citations,
+    stream_answer_for_request,
     RetrievedChunkContext,
 )
 
@@ -76,11 +76,30 @@ def _build_qa_response(
         normalized_question=normalized_question,
         answer=answer.answer_text,
         supported=answer.supported,
+        answer_mode=answer.answer_mode,
+        confidence=answer.confidence,
+        support_score=answer.support_score,
         citations=[_serialize_citation(context) for context in answer.citations],
         retrieved_chunk_count=len(qa_trace.retrieved_chunks),
         trace=(
             QATrace(
                 answer_provider=qa_trace.answer_provider,
+                answer_mode=qa_trace.answer_mode,
+                question_router=QAQuestionRouter(
+                    answer_mode=qa_trace.question_router.answer_mode,
+                    reason=qa_trace.question_router.reason,
+                    facet_count=qa_trace.question_router.facet_count,
+                    context_count=qa_trace.question_router.context_count,
+                    should_use_generative=qa_trace.question_router.should_use_generative,
+                ),
+                runtime=QARuntimeMetadata(
+                    embedding_provider=qa_trace.runtime.embedding_provider,
+                    embedding_model=qa_trace.runtime.embedding_model,
+                    reranker_provider=qa_trace.runtime.reranker_provider,
+                    reranker_model=qa_trace.runtime.reranker_model,
+                    answer_provider=qa_trace.runtime.answer_provider,
+                    answer_model=qa_trace.runtime.answer_model,
+                ),
                 retrieved_chunks=[_serialize_context(context) for context in qa_trace.retrieved_chunks],
                 selected_contexts=[_serialize_context(context) for context in qa_trace.selected_contexts],
                 cited_contexts=[_serialize_context(context) for context in qa_trace.cited_contexts],
@@ -144,39 +163,20 @@ def answer_question_stream(
                 },
             )
             answer_started_at = perf_counter()
-            for chunk in prepared_request.answer_provider.stream_answer(
-                question=prepared_request.normalized_question,
-                contexts=prepared_request.selected_contexts,
-            ):
+            final_answer, answer_chunks = stream_answer_for_request(prepared_request)
+            for chunk in answer_chunks:
                 answer_parts.append(chunk.delta)
                 yield _sse_event("answer_delta", {"delta": chunk.delta})
 
-            answer_text = "".join(answer_parts).strip()
             answered_at = perf_counter()
-            supported = not is_unsupported_answer_text(answer_text)
-            citations = (
-                select_evidence_citations(
-                    answer_text=answer_text,
-                    contexts=prepared_request.selected_contexts,
-                    question_text=prepared_request.normalized_question,
-                )
-                if supported
-                else []
-            )
-            final_answer = GeneratedAnswer(
-                answer_text=(
-                    answer_text
-                    if supported
-                    else "I could not find enough support in the indexed document to answer that question."
-                ),
-                supported=supported,
-                citations=citations,
-            )
             qa_trace = ServiceQATrace(
                 answer_provider=type(prepared_request.answer_provider).__name__,
+                answer_mode=final_answer.answer_mode,
+                question_router=prepared_request.routing_decision,
+                runtime=prepared_request.runtime,
                 retrieved_chunks=prepared_request.retrieved_chunks,
                 selected_contexts=prepared_request.selected_contexts,
-                cited_contexts=citations,
+                cited_contexts=final_answer.citations,
                 prompt_snapshot=prepared_request.prompt_snapshot,
                 timings=QATimingBreakdown(
                     normalization_ms=prepared_request.normalization_ms,

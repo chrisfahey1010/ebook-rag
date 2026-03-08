@@ -29,6 +29,9 @@ class QAResponse(BaseModel):
     normalized_question: str
     answer: str
     supported: bool
+    answer_mode: str
+    confidence: float
+    support_score: float
     citations: list[QACitation]
     retrieved_chunk_count: int
     trace: "QATrace | None" = None
@@ -59,8 +62,28 @@ class QATraceChunk(BaseModel):
     score: float
 
 
+class QAQuestionRouter(BaseModel):
+    answer_mode: str
+    reason: str
+    facet_count: int
+    context_count: int
+    should_use_generative: bool
+
+
+class QARuntimeMetadata(BaseModel):
+    embedding_provider: str
+    embedding_model: str | None
+    reranker_provider: str
+    reranker_model: str | None
+    answer_provider: str
+    answer_model: str | None
+
+
 class QATrace(BaseModel):
     answer_provider: str
+    answer_mode: str
+    question_router: QAQuestionRouter
+    runtime: QARuntimeMetadata
     retrieved_chunks: list[QATraceChunk]
     selected_contexts: list[QATraceChunk]
     cited_contexts: list[QATraceChunk]

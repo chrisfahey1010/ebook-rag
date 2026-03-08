@@ -107,6 +107,9 @@ type QAResponse = {
   normalized_question: string;
   answer: string;
   supported: boolean;
+  answer_mode: string;
+  confidence: number;
+  support_score: number;
   citations: Citation[];
   retrieved_chunk_count: number;
   trace: QATrace | null;
@@ -122,11 +125,31 @@ type QATimingBreakdown = {
 
 type QATrace = {
   answer_provider: string;
+  answer_mode: string;
+  question_router: QAQuestionRouter;
+  runtime: QARuntimeMetadata;
   retrieved_chunks: RetrievalMatch[];
   selected_contexts: RetrievalMatch[];
   cited_contexts: RetrievalMatch[];
   prompt_snapshot: string;
   timings: QATimingBreakdown;
+};
+
+type QAQuestionRouter = {
+  answer_mode: string;
+  reason: string;
+  facet_count: number;
+  context_count: number;
+  should_use_generative: boolean;
+};
+
+type QARuntimeMetadata = {
+  embedding_provider: string;
+  embedding_model: string | null;
+  reranker_provider: string;
+  reranker_model: string | null;
+  answer_provider: string;
+  answer_model: string | null;
 };
 
 type RetrievalMatch = {
@@ -189,6 +212,18 @@ function formatCharRangeLabel(
 
 function formatScore(value: number): string {
   return value.toFixed(3);
+}
+
+function formatPercent(value: number): string {
+  return `${Math.round(value * 100)}%`;
+}
+
+function formatModeLabel(mode: string): string {
+  return mode.replace(/_/g, " ");
+}
+
+function formatRuntimeLabel(provider: string, model: string | null): string {
+  return model ? `${provider} · ${model}` : provider;
 }
 
 function formatCrossPageSpan(charRange: NonNullable<ChunkProvenance["char_range"]>): string {
@@ -684,6 +719,9 @@ export default function Home() {
           normalized_question: trimmedQuestion,
           answer: "",
           supported: false,
+          answer_mode: "unsupported",
+          confidence: 0,
+          support_score: 0,
           citations: [],
           retrieved_chunk_count: 0,
           trace: null,
@@ -699,6 +737,9 @@ export default function Home() {
                   normalized_question: trimmedQuestion,
                   answer: delta,
                   supported: false,
+                  answer_mode: "unsupported",
+                  confidence: 0,
+                  support_score: 0,
                   citations: [],
                   retrieved_chunk_count: 0,
                   trace: null,
@@ -1180,7 +1221,7 @@ export default function Home() {
                     <p className="rounded-[1.25rem] bg-white/75 px-5 py-5 text-base leading-8 shadow-[0_14px_34px_rgba(63,42,29,0.05)]">
                       {answer.answer || (isAnswering ? "Streaming answer..." : "")}
                     </p>
-                    <div className="grid gap-4 md:grid-cols-2">
+                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                       <div className="rounded-[1.1rem] border border-[var(--border)] bg-white/60 px-4 py-4">
                         <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
                           Normalized question
@@ -1197,32 +1238,116 @@ export default function Home() {
                           {answer.retrieved_chunk_count} candidates considered
                         </p>
                       </div>
+                      <div className="rounded-[1.1rem] border border-[var(--border)] bg-white/60 px-4 py-4">
+                        <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+                          Answer mode
+                        </p>
+                        <p className="mt-2 text-sm capitalize leading-6">
+                          {formatModeLabel(answer.answer_mode)}
+                        </p>
+                      </div>
+                      <div className="rounded-[1.1rem] border border-[var(--border)] bg-white/60 px-4 py-4">
+                        <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+                          Support confidence
+                        </p>
+                        <p className="mt-2 text-sm leading-6">
+                          {formatPercent(answer.confidence)} confidence ·{" "}
+                          {formatPercent(answer.support_score)} evidence score
+                        </p>
+                      </div>
                     </div>
                     {qaTrace ? (
-                      <div className="grid gap-4 md:grid-cols-3">
-                        <div className="rounded-[1.1rem] border border-[var(--border)] bg-white/60 px-4 py-4">
-                          <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
-                            Answer provider
-                          </p>
-                          <p className="mt-2 text-sm leading-6">
-                            {qaTrace.answer_provider}
-                          </p>
+                      <div className="space-y-4">
+                        <div className="grid gap-4 md:grid-cols-3">
+                          <div className="rounded-[1.1rem] border border-[var(--border)] bg-white/60 px-4 py-4">
+                            <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+                              Answer provider
+                            </p>
+                            <p className="mt-2 text-sm leading-6">
+                              {qaTrace.answer_provider}
+                            </p>
+                          </div>
+                          <div className="rounded-[1.1rem] border border-[var(--border)] bg-white/60 px-4 py-4">
+                            <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+                              Context window
+                            </p>
+                            <p className="mt-2 text-sm leading-6">
+                              {qaTrace.selected_contexts.length} chunks selected
+                            </p>
+                          </div>
+                          <div className="rounded-[1.1rem] border border-[var(--border)] bg-white/60 px-4 py-4">
+                            <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+                              Total latency
+                            </p>
+                            <p className="mt-2 text-sm leading-6">
+                              {qaTrace.timings.total_ms.toFixed(1)} ms
+                            </p>
+                          </div>
                         </div>
-                        <div className="rounded-[1.1rem] border border-[var(--border)] bg-white/60 px-4 py-4">
-                          <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
-                            Context window
-                          </p>
-                          <p className="mt-2 text-sm leading-6">
-                            {qaTrace.selected_contexts.length} chunks selected
-                          </p>
-                        </div>
-                        <div className="rounded-[1.1rem] border border-[var(--border)] bg-white/60 px-4 py-4">
-                          <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
-                            Total latency
-                          </p>
-                          <p className="mt-2 text-sm leading-6">
-                            {qaTrace.timings.total_ms.toFixed(1)} ms
-                          </p>
+                        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                          <div className="rounded-[1.1rem] border border-[var(--border)] bg-white/60 px-4 py-4">
+                            <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+                              Router decision
+                            </p>
+                            <p className="mt-2 text-sm capitalize leading-6">
+                              {formatModeLabel(qaTrace.question_router.answer_mode)}
+                            </p>
+                            <p className="mt-1 text-sm leading-6 text-[var(--muted)]">
+                              {qaTrace.question_router.reason}
+                            </p>
+                          </div>
+                          <div className="rounded-[1.1rem] border border-[var(--border)] bg-white/60 px-4 py-4">
+                            <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+                              Embeddings
+                            </p>
+                            <p className="mt-2 text-sm leading-6">
+                              {formatRuntimeLabel(
+                                qaTrace.runtime.embedding_provider,
+                                qaTrace.runtime.embedding_model,
+                              )}
+                            </p>
+                          </div>
+                          <div className="rounded-[1.1rem] border border-[var(--border)] bg-white/60 px-4 py-4">
+                            <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+                              Reranker
+                            </p>
+                            <p className="mt-2 text-sm leading-6">
+                              {formatRuntimeLabel(
+                                qaTrace.runtime.reranker_provider,
+                                qaTrace.runtime.reranker_model,
+                              )}
+                            </p>
+                          </div>
+                          <div className="rounded-[1.1rem] border border-[var(--border)] bg-white/60 px-4 py-4">
+                            <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+                              Answer runtime
+                            </p>
+                            <p className="mt-2 text-sm leading-6">
+                              {formatRuntimeLabel(
+                                qaTrace.runtime.answer_provider,
+                                qaTrace.runtime.answer_model,
+                              )}
+                            </p>
+                          </div>
+                          <div className="rounded-[1.1rem] border border-[var(--border)] bg-white/60 px-4 py-4">
+                            <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+                              Router inputs
+                            </p>
+                            <p className="mt-2 text-sm leading-6">
+                              {qaTrace.question_router.facet_count} facets ·{" "}
+                              {qaTrace.question_router.context_count} contexts
+                            </p>
+                          </div>
+                          <div className="rounded-[1.1rem] border border-[var(--border)] bg-white/60 px-4 py-4">
+                            <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+                              Generative path
+                            </p>
+                            <p className="mt-2 text-sm leading-6">
+                              {qaTrace.question_router.should_use_generative
+                                ? "Enabled"
+                                : "Not used"}
+                            </p>
+                          </div>
                         </div>
                       </div>
                     ) : null}

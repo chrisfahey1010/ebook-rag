@@ -347,6 +347,20 @@ The best next coding slice is:
 
 That slice is the point where the project should stop feeling like "good retrieval plus clever matching" and start feeling like "an intelligent, grounded local document QA system."
 
+## Progress update
+
+As of March 8, 2026, the first pass of that slice has landed in code:
+
+- QA responses now report routed answer modes (`extractive`, `synthesis`, `unsupported`)
+- the backend now returns support/confidence metadata plus router rationale
+- the web UI now exposes active embedding, reranker, and answer runtime details
+
+That means the next follow-up work should narrow to:
+
+1. refresh benchmark artifacts and remove any remaining overstated quality claims
+2. benchmark the new router/support thresholds against Amazon and the stable regression suites
+3. tighten unsupported verification, ideally with a lightweight verifier pass rather than only heuristic support scoring
+
 ## Resolved decisions
 
 These are the working decisions for V1:

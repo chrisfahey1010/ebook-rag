@@ -127,9 +127,12 @@ Current implementation includes:
 - merged same-chunk evidence excerpts for multi-sentence answers when support spans multiple answer sentences
 - question-aware citation ranking that breaks evidence ties using anchor terms, constraints, answer-type cues, and narrower page spans
 - pluggable QA providers, including a local extractive fallback and an OpenAI-compatible adapter
+- routed QA modes that distinguish extractive lookup, grounded synthesis, and unsupported responses
+- QA responses with support confidence, evidence score, router rationale, and runtime metadata
 - retrieval debug route and browser-side candidate inspector
 - browser-side page-local citation inspector with answer-sentence matching and normalized-text offset spans
 - browser-side ingestion status refresh and reprocessing controls
+- browser-side provider/runtime visibility for embeddings, reranking, and answer generation
 - an expanded curated eval set for retrieval, unsupported-answer, and citation regression checks
 - an expanded local real-document benchmark fixture library spanning long-form narrative prose, technical reports, model/system cards, financial filings, and equipment manuals
 - Next.js document library, upload flow, QA workspace, citation preview pane, and retrieval inspector
@@ -140,7 +143,7 @@ Current limitations:
 - PostgreSQL vector storage now follows the configured embedding dimension, but changing dimensions requires running migrations and reprocessing existing documents
 - chunk sizing is now benchmark-backed for the current fixture set, but the benchmark still needs broader real-document coverage before the defaults should be treated as final
 - context assembly is still heuristic even though answer traces now separate selected context from cited evidence
-- the generative answer path is still thinner than the retrieval stack; the local extractive fallback is often doing more of the real work than the LLM-backed path
+- the generative answer path is now routed explicitly for multi-evidence questions, but the unsupported verifier is still heuristic rather than model-based
 - local-model runtime configuration is supported, but the recommended fully local setup is not yet documented and surfaced clearly enough
 - the March 8, 2026 ingestion-quality pass improved normalization and heading metadata structure, but the current benchmark suites did not show a measurable end-to-end quality lift from those ingestion changes alone
 - the long-form `hells_angels` benchmark still misses some exact-page citation targets and page-local fact questions on long books

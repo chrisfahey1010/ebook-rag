@@ -62,6 +62,9 @@ def test_qa_answer_returns_grounded_answer_with_citations(
     assert response.status_code == 200
     payload = response.json()
     assert payload["supported"] is True
+    assert payload["answer_mode"] == "extractive"
+    assert payload["confidence"] > 0
+    assert payload["support_score"] > 0
     assert "charge the rover battery" in payload["answer"].lower()
     assert payload["citations"]
     assert payload["citations"][0]["document_id"] == document_id
@@ -102,6 +105,9 @@ def test_qa_answer_returns_unsupported_when_evidence_is_missing(
     assert response.status_code == 200
     payload = response.json()
     assert payload["supported"] is False
+    assert payload["answer_mode"] == "unsupported"
+    assert payload["confidence"] > 0
+    assert payload["support_score"] == 0
     assert "could not find enough support" in payload["answer"].lower()
     assert payload["citations"] == []
 
@@ -142,6 +148,11 @@ def test_qa_answer_can_include_trace_payload(
     payload = response.json()
     assert payload["trace"] is not None
     assert payload["trace"]["answer_provider"] == "ExtractiveAnswerProvider"
+    assert payload["trace"]["answer_mode"] == "extractive"
+    assert payload["trace"]["question_router"]["answer_mode"] == "extractive"
+    assert payload["trace"]["runtime"]["embedding_provider"] == "hashing"
+    assert payload["trace"]["runtime"]["reranker_provider"] == "token_overlap"
+    assert payload["trace"]["runtime"]["answer_provider"] == "extractive"
     assert payload["trace"]["retrieved_chunks"]
     assert payload["trace"]["selected_contexts"]
     assert "dense_score" in payload["trace"]["retrieved_chunks"][0]
@@ -199,6 +210,7 @@ def test_qa_answer_stream_returns_sse_events_and_final_payload(
 
     complete_payload = events[-1][1]
     assert complete_payload["supported"] is True
+    assert complete_payload["answer_mode"] == "extractive"
     assert "inspect the heat shield before ignition" in complete_payload["answer"].lower()
     assert complete_payload["citations"]
     assert complete_payload["trace"] is not None
@@ -246,6 +258,7 @@ def test_qa_answer_stream_returns_unsupported_completion_payload(
     events = _parse_sse_events(response.text)
     complete_payload = events[-1][1]
     assert complete_payload["supported"] is False
+    assert complete_payload["answer_mode"] == "unsupported"
     assert "could not find enough support" in complete_payload["answer"].lower()
     assert complete_payload["citations"] == []
 

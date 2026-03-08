@@ -5,8 +5,10 @@ from ebook_rag_api.services.qa import (
     RetrievedChunkContext,
     assemble_answer_contexts,
     build_qa_prompt,
+    build_grounded_synthesis_prompt,
     extract_chat_completion_delta,
     extract_chat_completion_text,
+    route_question,
 )
 
 
@@ -82,6 +84,28 @@ def test_build_qa_prompt_includes_question_and_page_metadata() -> None:
     assert "Document: Launch Manual | Pages: 3-4 | Chunk: 0" in prompt
     assert "Fuel lines must be inspected before launch." in prompt
     assert "INSUFFICIENT_SUPPORT" in prompt
+
+
+def test_build_grounded_synthesis_prompt_calls_out_multi_evidence_behavior() -> None:
+    prompt = build_grounded_synthesis_prompt(
+        question="What happened before launch and after landing?",
+        contexts=[
+            RetrievedChunkContext(
+                chunk_id="chunk-1",
+                document_id="doc-1",
+                document_title="Launch Manual",
+                document_filename="launch.pdf",
+                chunk_index=0,
+                page_start=3,
+                page_end=4,
+                text="Fuel lines must be inspected before launch.",
+                score=0.92,
+            )
+        ],
+    )
+
+    assert "Synthesize only claims directly supported by the evidence." in prompt
+    assert "If any requested facet lacks support" in prompt
 
 
 def test_extract_chat_completion_text_handles_string_and_list_content() -> None:
@@ -177,6 +201,37 @@ def test_openai_compatible_provider_returns_answer_and_citations(monkeypatch) ->
     assert fake_client.calls[0]["url"] == "http://localhost:11434/v1/chat/completions"
     assert fake_client.calls[0]["json"]["model"] == "llama3.2"
     assert fake_client.calls[0]["headers"]["Authorization"] == "Bearer secret"
+
+
+def test_route_question_prefers_synthesis_for_multi_facet_questions() -> None:
+    provider = OpenAICompatibleAnswerProvider(
+        base_url="http://localhost:11434/v1",
+        api_key="secret",
+        model="llama3.2",
+        timeout_seconds=5.0,
+        temperature=0.0,
+        max_tokens=200,
+    )
+    decision = route_question(
+        question="What should happen before launch and after landing?",
+        contexts=[
+            RetrievedChunkContext(
+                chunk_id="chunk-1",
+                document_id="doc-1",
+                document_title="Launch Manual",
+                document_filename="launch.pdf",
+                chunk_index=0,
+                page_start=3,
+                page_end=3,
+                text="Inspect the fuel lines before launch. Deploy the parachute after landing.",
+                score=0.91,
+            )
+        ],
+        answer_provider=provider,
+    )
+
+    assert decision.answer_mode == "synthesis"
+    assert decision.should_use_generative is True
 
 
 def test_openai_compatible_provider_maps_insufficient_support(monkeypatch) -> None:

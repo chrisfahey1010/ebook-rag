@@ -60,6 +60,28 @@ class GeneratedAnswer:
     answer_text: str
     supported: bool
     citations: list[RetrievedChunkContext]
+    answer_mode: str = "unsupported"
+    confidence: float = 0.0
+    support_score: float = 0.0
+
+
+@dataclass(frozen=True)
+class QuestionRoutingDecision:
+    answer_mode: str
+    reason: str
+    facet_count: int
+    context_count: int
+    should_use_generative: bool
+
+
+@dataclass(frozen=True)
+class RuntimeMetadata:
+    embedding_provider: str
+    embedding_model: str | None
+    reranker_provider: str
+    reranker_model: str | None
+    answer_provider: str
+    answer_model: str | None
 
 
 @dataclass(frozen=True)
@@ -90,6 +112,9 @@ class QATimingBreakdown:
 @dataclass(frozen=True)
 class QATrace:
     answer_provider: str
+    answer_mode: str
+    question_router: QuestionRoutingDecision
+    runtime: RuntimeMetadata
     retrieved_chunks: list[RetrievedChunkContext]
     selected_contexts: list[RetrievedChunkContext]
     cited_contexts: list[RetrievedChunkContext]
@@ -110,6 +135,8 @@ class PreparedQARequest:
     selected_contexts: list[RetrievedChunkContext]
     prompt_snapshot: str
     answer_provider: "AnswerProvider"
+    routing_decision: QuestionRoutingDecision
+    runtime: RuntimeMetadata
     normalization_ms: float
     retrieval_ms: float
     context_assembly_ms: float
@@ -199,25 +226,17 @@ class OpenAICompatibleAnswerProvider:
         self.temperature = temperature
         self.max_tokens = max_tokens
 
-    def generate_answer(
-        self, question: str, contexts: list[RetrievedChunkContext]
-    ) -> GeneratedAnswer:
-        if not contexts:
-            return _unsupported_answer()
-
-        prompt = build_qa_prompt(question=question, contexts=contexts)
+    def complete(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+    ) -> str | None:
         payload = {
             "model": self.model,
             "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "You answer questions using only the provided document context. "
-                        "If the evidence is insufficient, reply exactly with "
-                        "'INSUFFICIENT_SUPPORT'."
-                    ),
-                },
-                {"role": "user", "content": prompt},
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
             ],
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
@@ -235,43 +254,24 @@ class OpenAICompatibleAnswerProvider:
                 )
                 response.raise_for_status()
         except httpx.HTTPError:
-            return _unsupported_answer()
+            return None
 
-        answer_text = extract_chat_completion_text(response.json())
-        if not answer_text or answer_text.strip() == "INSUFFICIENT_SUPPORT":
-            return _unsupported_answer()
+        answer_text = extract_chat_completion_text(response.json()).strip()
+        if not answer_text or answer_text == "INSUFFICIENT_SUPPORT":
+            return None
+        return answer_text
 
-        return GeneratedAnswer(
-            answer_text=answer_text.strip(),
-            supported=True,
-            citations=select_evidence_citations(
-                answer_text=answer_text.strip(),
-                contexts=contexts,
-                question_text=question,
-            ),
-        )
-
-    def stream_answer(
-        self, question: str, contexts: list[RetrievedChunkContext]
+    def stream_completion(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
     ) -> Iterator[AnswerStreamChunk]:
-        if not contexts:
-            for delta in _chunk_text_for_stream(_unsupported_answer().answer_text):
-                yield AnswerStreamChunk(delta=delta)
-            return
-
-        prompt = build_qa_prompt(question=question, contexts=contexts)
         payload = {
             "model": self.model,
             "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "You answer questions using only the provided document context. "
-                        "If the evidence is insufficient, reply exactly with "
-                        "'INSUFFICIENT_SUPPORT'."
-                    ),
-                },
-                {"role": "user", "content": prompt},
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
             ],
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
@@ -300,6 +300,60 @@ class OpenAICompatibleAnswerProvider:
                         if delta:
                             yield AnswerStreamChunk(delta=delta)
         except httpx.HTTPError:
+            return
+
+    def generate_answer(
+        self, question: str, contexts: list[RetrievedChunkContext]
+    ) -> GeneratedAnswer:
+        if not contexts:
+            return _unsupported_answer()
+
+        prompt = build_qa_prompt(question=question, contexts=contexts)
+        answer_text = self.complete(
+            system_prompt=(
+                "You answer questions using only the provided document context. "
+                "If the evidence is insufficient, reply exactly with "
+                "'INSUFFICIENT_SUPPORT'."
+            ),
+            user_prompt=prompt,
+        )
+        if not answer_text:
+            return _unsupported_answer()
+
+        return GeneratedAnswer(
+            answer_text=answer_text,
+            supported=True,
+            citations=select_evidence_citations(
+                answer_text=answer_text,
+                contexts=contexts,
+                question_text=question,
+            ),
+            answer_mode="synthesis",
+            confidence=0.66,
+            support_score=0.66,
+        )
+
+    def stream_answer(
+        self, question: str, contexts: list[RetrievedChunkContext]
+    ) -> Iterator[AnswerStreamChunk]:
+        if not contexts:
+            for delta in _chunk_text_for_stream(_unsupported_answer().answer_text):
+                yield AnswerStreamChunk(delta=delta)
+            return
+
+        prompt = build_qa_prompt(question=question, contexts=contexts)
+        yielded = False
+        for chunk in self.stream_completion(
+            system_prompt=(
+                "You answer questions using only the provided document context. "
+                "If the evidence is insufficient, reply exactly with "
+                "'INSUFFICIENT_SUPPORT'."
+            ),
+            user_prompt=prompt,
+        ):
+            yielded = True
+            yield chunk
+        if not yielded:
             for delta in _chunk_text_for_stream(_unsupported_answer().answer_text):
                 yield AnswerStreamChunk(delta=delta)
 
@@ -321,6 +375,80 @@ def get_answer_provider() -> AnswerProvider:
             max_tokens=settings.answer_max_tokens or settings.llm_max_tokens,
         )
     raise ValueError(f"Unsupported answer provider: {settings.answer_provider}")
+
+
+def get_runtime_metadata() -> RuntimeMetadata:
+    settings = get_settings()
+    return RuntimeMetadata(
+        embedding_provider=settings.embedding_provider,
+        embedding_model=(
+            settings.embedding_model
+            if settings.embedding_provider in {"sentence_transformer", "openai_compatible"}
+            else None
+        ),
+        reranker_provider=settings.reranker_provider,
+        reranker_model=(
+            settings.reranker_model
+            if settings.reranker_provider in {"cross_encoder", "openai_compatible"}
+            else None
+        ),
+        answer_provider=settings.answer_provider,
+        answer_model=(
+            settings.answer_model or settings.llm_model
+            if settings.answer_provider == "openai_compatible"
+            else None
+        ),
+    )
+
+
+def route_question(
+    *,
+    question: str,
+    contexts: list[RetrievedChunkContext],
+    answer_provider: AnswerProvider,
+) -> QuestionRoutingDecision:
+    facets = _build_question_facets(question)
+    facet_count = max(len(facets), 1)
+    context_count = len(contexts)
+    if not contexts:
+        return QuestionRoutingDecision(
+            answer_mode="unsupported",
+            reason="No retrieval evidence was available for the question.",
+            facet_count=facet_count,
+            context_count=context_count,
+            should_use_generative=False,
+        )
+
+    if _retrieval_support_is_too_weak(question=question, contexts=contexts, facets=facets):
+        return QuestionRoutingDecision(
+            answer_mode="unsupported",
+            reason="Retrieved evidence did not cover enough anchor or constraint terms.",
+            facet_count=facet_count,
+            context_count=context_count,
+            should_use_generative=False,
+        )
+
+    if facet_count > 1:
+        should_use_generative = isinstance(answer_provider, OpenAICompatibleAnswerProvider)
+        return QuestionRoutingDecision(
+            answer_mode="synthesis" if should_use_generative else "extractive",
+            reason=(
+                "Question spans multiple facets; route to grounded synthesis when a local model is configured."
+                if should_use_generative
+                else "Question spans multiple facets, but no generative answer provider is configured."
+            ),
+            facet_count=facet_count,
+            context_count=context_count,
+            should_use_generative=should_use_generative,
+        )
+
+    return QuestionRoutingDecision(
+        answer_mode="extractive",
+        reason="Question looks like a single-fact lookup with adequate evidence coverage.",
+        facet_count=facet_count,
+        context_count=context_count,
+        should_use_generative=False,
+    )
 
 
 def ask_question(
@@ -350,13 +478,13 @@ def ask_question_with_trace(
         include_prompt_snapshot=include_prompt_snapshot,
     )
     answer_started_at = perf_counter()
-    answer = prepared_request.answer_provider.generate_answer(
-        question=prepared_request.normalized_question,
-        contexts=prepared_request.selected_contexts,
-    )
+    answer = generate_answer_for_request(prepared_request)
     answered_at = perf_counter()
     trace = QATrace(
         answer_provider=type(prepared_request.answer_provider).__name__,
+        answer_mode=answer.answer_mode,
+        question_router=prepared_request.routing_decision,
+        runtime=prepared_request.runtime,
         retrieved_chunks=prepared_request.retrieved_chunks,
         selected_contexts=prepared_request.selected_contexts,
         cited_contexts=answer.citations,
@@ -407,15 +535,21 @@ def prepare_qa_request(
         contexts=expanded_contexts,
     )
     answer_provider = get_answer_provider()
+    routing_decision = route_question(
+        question=normalized_question,
+        contexts=assembled_contexts,
+        answer_provider=answer_provider,
+    )
     selected_contexts = (
         expanded_contexts
         if isinstance(answer_provider, ExtractiveAnswerProvider)
         else assembled_contexts
     )
     prompt_snapshot = (
-        build_qa_prompt(
+        build_prompt_for_routing(
             question=normalized_question,
             contexts=selected_contexts,
+            routing_decision=routing_decision,
         )
         if include_prompt_snapshot
         else ""
@@ -427,6 +561,8 @@ def prepare_qa_request(
         selected_contexts=selected_contexts,
         prompt_snapshot=prompt_snapshot,
         answer_provider=answer_provider,
+        routing_decision=routing_decision,
+        runtime=get_runtime_metadata(),
         normalization_ms=(normalized_at - started_at) * 1000,
         retrieval_ms=(retrieved_at - normalized_at) * 1000,
         context_assembly_ms=(prepared_at - retrieved_at) * 1000,
@@ -452,6 +588,48 @@ def build_chunk_context(match: ChunkSearchMatch) -> RetrievedChunkContext:
         rerank_score=match.rerank_score,
         score=match.score,
     )
+
+
+def generate_answer_for_request(prepared_request: PreparedQARequest) -> GeneratedAnswer:
+    routing_decision = prepared_request.routing_decision
+    if routing_decision.answer_mode == "unsupported":
+        return _unsupported_answer(
+            confidence=0.78,
+            support_score=0.0,
+        )
+
+    if (
+        routing_decision.answer_mode == "synthesis"
+        and isinstance(prepared_request.answer_provider, OpenAICompatibleAnswerProvider)
+    ):
+        return _generate_synthesis_answer(
+            question=prepared_request.normalized_question,
+            contexts=prepared_request.selected_contexts,
+            provider=prepared_request.answer_provider,
+        )
+
+    answer = prepared_request.answer_provider.generate_answer(
+        question=prepared_request.normalized_question,
+        contexts=prepared_request.selected_contexts,
+    )
+    return _finalize_generated_answer(
+        answer=answer,
+        question=prepared_request.normalized_question,
+        contexts=prepared_request.selected_contexts,
+        fallback_mode=routing_decision.answer_mode,
+    )
+
+
+def stream_answer_for_request(
+    prepared_request: PreparedQARequest,
+) -> tuple[GeneratedAnswer, Iterator[AnswerStreamChunk]]:
+    final_answer = generate_answer_for_request(prepared_request)
+
+    def iterator() -> Iterator[AnswerStreamChunk]:
+        for delta in _chunk_text_for_stream(final_answer.answer_text):
+            yield AnswerStreamChunk(delta=delta)
+
+    return final_answer, iterator()
 
 
 def expand_contexts_with_page_siblings(
@@ -999,6 +1177,17 @@ def _collect_page_period_headers(
     return headers_by_page
 
 
+def build_prompt_for_routing(
+    *,
+    question: str,
+    contexts: list[RetrievedChunkContext],
+    routing_decision: QuestionRoutingDecision,
+) -> str:
+    if routing_decision.answer_mode == "synthesis":
+        return build_grounded_synthesis_prompt(question=question, contexts=contexts)
+    return build_qa_prompt(question=question, contexts=contexts)
+
+
 def build_qa_prompt(question: str, contexts: list[RetrievedChunkContext]) -> str:
     context_blocks = []
     for context in contexts:
@@ -1018,6 +1207,32 @@ def build_qa_prompt(question: str, contexts: list[RetrievedChunkContext]) -> str
         "- Answer only from the context.\n"
         "- Keep the answer concise and factual.\n"
         "- If the context is insufficient, reply exactly with INSUFFICIENT_SUPPORT.\n"
+    )
+
+
+def build_grounded_synthesis_prompt(
+    question: str,
+    contexts: list[RetrievedChunkContext],
+) -> str:
+    context_blocks = []
+    for context in contexts:
+        label = (
+            f"Document: {context.document_title or context.document_filename} | "
+            f"Pages: {context.page_start}-{context.page_end} | "
+            f"Chunk: {context.chunk_index} | Score: {context.score:.4f}"
+        )
+        context_blocks.append(f"{label}\n{context.text}")
+
+    joined_context = "\n\n---\n\n".join(context_blocks)
+    return (
+        f"Question: {question}\n\n"
+        "Evidence:\n"
+        f"{joined_context}\n\n"
+        "Instructions:\n"
+        "- Synthesize only claims directly supported by the evidence.\n"
+        "- Combine multiple chunks when needed, but do not add outside facts.\n"
+        "- If any requested facet lacks support, reply exactly with INSUFFICIENT_SUPPORT.\n"
+        "- Prefer a short direct answer over repeating the context.\n"
     )
 
 
@@ -1966,6 +2181,78 @@ def _split_support_units(answer_text: str) -> list[str]:
     return support_units
 
 
+def _generate_synthesis_answer(
+    *,
+    question: str,
+    contexts: list[RetrievedChunkContext],
+    provider: OpenAICompatibleAnswerProvider,
+) -> GeneratedAnswer:
+    answer_text = provider.complete(
+        system_prompt=(
+            "You answer questions only from the supplied document evidence. "
+            "Combine evidence across chunks when necessary, but do not invent facts. "
+            "If any requested facet is unsupported, reply exactly with INSUFFICIENT_SUPPORT."
+        ),
+        user_prompt=build_grounded_synthesis_prompt(
+            question=question,
+            contexts=contexts,
+        ),
+    )
+    if not answer_text:
+        return _unsupported_answer(confidence=0.72, support_score=0.0)
+
+    citations = select_evidence_citations(
+        answer_text=answer_text,
+        contexts=contexts,
+        question_text=question,
+    )
+    answer = GeneratedAnswer(
+        answer_text=answer_text,
+        supported=True,
+        citations=citations,
+        answer_mode="synthesis",
+    )
+    return _finalize_generated_answer(
+        answer=answer,
+        question=question,
+        contexts=contexts,
+        fallback_mode="synthesis",
+    )
+
+
+def _finalize_generated_answer(
+    *,
+    answer: GeneratedAnswer,
+    question: str,
+    contexts: list[RetrievedChunkContext],
+    fallback_mode: str,
+) -> GeneratedAnswer:
+    if not answer.supported or is_unsupported_answer_text(answer.answer_text):
+        return _unsupported_answer(confidence=0.74, support_score=0.0)
+
+    citations = answer.citations or select_evidence_citations(
+        answer_text=answer.answer_text,
+        contexts=contexts,
+        question_text=question,
+    )
+    support_score = _compute_support_score(
+        question=question,
+        answer_text=answer.answer_text,
+        citations=citations,
+    )
+    if support_score < 0.45:
+        return _unsupported_answer(confidence=0.7, support_score=support_score)
+
+    confidence = min(0.98, max(0.35, 0.45 + support_score * 0.5))
+    return replace(
+        answer,
+        citations=citations,
+        answer_mode=fallback_mode,
+        confidence=confidence,
+        support_score=support_score,
+    )
+
+
 def _is_same_location_as_existing(
     candidate: RetrievedChunkContext,
     selected: list[RetrievedChunkContext],
@@ -1978,7 +2265,11 @@ def _is_same_location_as_existing(
     )
 
 
-def _unsupported_answer() -> GeneratedAnswer:
+def _unsupported_answer(
+    *,
+    confidence: float = 0.72,
+    support_score: float = 0.0,
+) -> GeneratedAnswer:
     return GeneratedAnswer(
         answer_text=(
             "I could not find enough support in the indexed document content "
@@ -1986,7 +2277,78 @@ def _unsupported_answer() -> GeneratedAnswer:
         ),
         supported=False,
         citations=[],
+        answer_mode="unsupported",
+        confidence=confidence,
+        support_score=support_score,
     )
+
+
+def _compute_support_score(
+    *,
+    question: str,
+    answer_text: str,
+    citations: list[RetrievedChunkContext],
+) -> float:
+    if not citations:
+        return 0.0
+
+    facets = _build_question_facets(question)
+    answer_terms = _tokenize(answer_text)
+    citation_terms = set().union(*(_tokenize(citation.text) for citation in citations))
+    average_citation_score = sum(max(citation.score, 0.0) for citation in citations) / len(citations)
+    supported_facet_count = 0
+    for facet in facets:
+        facet_terms = facet.terms | facet.anchor_terms | facet.constraint_terms
+        if not facet_terms:
+            continue
+        if len(facet_terms & citation_terms) >= max(1, min(2, len(facet_terms))):
+            supported_facet_count += 1
+
+    facet_coverage = supported_facet_count / max(len(facets), 1)
+    answer_overlap = _normalized_term_overlap(answer_terms, citation_terms)
+    citation_count_bonus = min(len(citations), 3) / 3
+    return min(
+        1.0,
+        facet_coverage * 0.5
+        + answer_overlap * 0.25
+        + min(average_citation_score, 1.0) * 0.15
+        + citation_count_bonus * 0.1,
+    )
+
+
+def _retrieval_support_is_too_weak(
+    *,
+    question: str,
+    contexts: list[RetrievedChunkContext],
+    facets: list[QuestionFacet],
+) -> bool:
+    if not contexts:
+        return True
+
+    context_terms = set().union(*(_tokenize(context.text) for context in contexts))
+    strong_facet_count = 0
+    for facet in facets:
+        facet_terms = facet.terms
+        if not facet_terms:
+            continue
+        matched_terms = len(facet_terms & context_terms)
+        anchor_matches = len(facet.anchor_terms & context_terms)
+        constraint_matches = len(facet.constraint_terms & context_terms)
+        if matched_terms >= max(1, min(3, len(facet_terms))):
+            strong_facet_count += 1
+            continue
+        if anchor_matches >= _required_anchor_matches(facet.anchor_terms) and constraint_matches >= _required_constraint_matches(
+            facet.constraint_terms
+        ):
+            strong_facet_count += 1
+
+    if strong_facet_count == 0:
+        return True
+    if len(facets) > 1 and strong_facet_count < len(facets):
+        return True
+    if _question_has_numeric_intent(question) and not any(re.search(r"\d", context.text) for context in contexts):
+        return True
+    return False
 
 
 def _anchor_support_score(
