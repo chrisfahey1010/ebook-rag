@@ -132,7 +132,7 @@ Current limitations:
 - context assembly is still heuristic even though answer traces now separate selected context from cited evidence
 - the long-document benchmark now has better unsupported-answer rejection, less metadata/front-matter confusion, and stronger date-specific citation tie-breaking, but it still misses some exact-page citation targets and page-local fact questions on long books
 - nickname-specific and some page-local/date-specific questions in the long-document benchmark can still retrieve the right neighborhood but choose the wrong sentence or citation page
-- the default benchmark fixture now covers more retrieval failure modes, but it is still synthetic and should keep expanding toward harder multi-page citation coverage cases
+- the default benchmark fixture now covers more retrieval failure modes, and the repo now also includes a shorter real-world earnings-report PDF for future eval coverage, but the benchmark suite is still only lightly tuned outside the existing curated and `hells_angels` cases
 
 ## API snapshot
 
@@ -196,7 +196,7 @@ uv run python scripts/run_eval.py \
 
 On the current fixtures, the curated benchmark is effectively a latency tie and slightly favors the large preset, while the long-form `hells_angels` benchmark clearly rejects `large` and recommends the current default config (`target_words=420`, `min_words=180`, `overlap_words=64`, `max_heading_words=12`). Persist those comparison artifacts locally under `apps/api/benchmarks/results/` when you rerun the commands above.
 
-For longer-document tuning, the runner also supports benchmarks that point at a real local PDF via `source_pdf`. The repo now includes [`hells_angels_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/hells_angels_eval.json), which exercises selected questions against the full 186-page [`hells_angels.pdf`](/home/chris/repos/ebook-rag/apps/api/benchmarks/local/hells_angels.pdf):
+For longer-document tuning, the runner also supports benchmarks that point at a real local PDF via `source_pdf`. The repo now includes [`hells_angels_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/hells_angels_eval.json), which exercises selected questions against the full 186-page [`hells_angels.pdf`](/home/chris/repos/ebook-rag/apps/api/benchmarks/local/hells_angels.pdf). The local benchmark fixture directory also now includes [`amazon_quarterly_earnings2025Q4.pdf`](/home/chris/repos/ebook-rag/apps/api/benchmarks/local/amazon_quarterly_earnings2025Q4.pdf) as an additional real-world document for future eval expansion, but the current chunking and retrieval notes below have not been tuned against that report yet:
 
 ```bash
 uv run python scripts/run_eval.py --benchmark benchmarks/hells_angels_eval.json
@@ -208,7 +208,7 @@ For page-local citation regression coverage, there is also a focused benchmark w
 uv run python scripts/run_eval.py --benchmark benchmarks/citation_granularity_eval.json
 ```
 
-That fixture keeps excerpt-accuracy checks in the gating lane, while selected `hells_angels` excerpt checks are marked exploratory so they surface long-form citation drift without blocking every merge. The aggregate citation-evidence metric still appears in reports, but `--fail-on-regression` gates on the explicit regression lane rather than exploratory excerpt misses.
+That fixture keeps excerpt-accuracy checks in the gating lane, while selected `hells_angels` excerpt checks are marked exploratory so they surface long-form citation drift without blocking every merge. The aggregate citation-evidence metric still appears in reports, but `--fail-on-regression` gates on the explicit regression lane rather than exploratory excerpt misses. The newly added Amazon earnings-report PDF is not yet represented in these tuned gating expectations.
 
 For regression tracking, the benchmark runner can also persist JSON and Markdown artifacts and compare a run against a saved baseline:
 
