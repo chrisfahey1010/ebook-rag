@@ -1,11 +1,14 @@
 import json
 
 from ebook_rag_api.services.qa import (
+    GeneratedAnswer,
     OpenAICompatibleAnswerProvider,
     QuestionFacet,
     RetrievedChunkContext,
+    _finalize_generated_answer,
     _should_run_unsupported_classifier,
     assemble_answer_contexts,
+    build_answer_repair_prompt,
     build_claim_verification_prompt,
     build_qa_prompt,
     build_grounded_synthesis_prompt,
@@ -134,6 +137,34 @@ def test_build_claim_verification_prompt_requests_supported_or_unsupported() -> 
 
     assert "Claim: Inspect the fuel lines before launch." in prompt
     assert "Reply on the first line with exactly SUPPORTED or UNSUPPORTED." in prompt
+
+
+def test_build_answer_repair_prompt_mentions_supported_claims_only() -> None:
+    context = RetrievedChunkContext(
+        chunk_id="chunk-1",
+        document_id="doc-1",
+        document_title="Launch Manual",
+        document_filename="launch.pdf",
+        chunk_index=0,
+        page_start=3,
+        page_end=3,
+        text="Inspect the fuel lines before launch.",
+        score=0.92,
+    )
+
+    verification = verify_answer_claims(
+        question="What should happen before launch?",
+        answer_text="Inspect the fuel lines before launch.",
+        contexts=[context],
+    )
+    prompt = build_answer_repair_prompt(
+        question="What should happen before launch?",
+        supported_claims=verification.claims,
+    )
+
+    assert "Supported claims:" in prompt
+    assert "Use only the supported claims listed above." in prompt
+    assert "Inspect the fuel lines before launch." in prompt
 
 
 def test_build_unsupported_classification_prompt_requires_full_question_support() -> None:
@@ -411,6 +442,75 @@ def test_verify_answer_claims_rejects_unsupported_claim_with_provider_check() ->
     assert verification.verifier == "heuristic+llm"
     assert verification.claims[0].supported is False
     assert "coolant pressure" in verification.claims[0].rationale.lower()
+
+
+def test_finalize_generated_answer_repairs_mixed_support_answer() -> None:
+    context = RetrievedChunkContext(
+        chunk_id="chunk-1",
+        document_id="doc-1",
+        document_title="Launch Manual",
+        document_filename="launch.pdf",
+        chunk_index=0,
+        page_start=3,
+        page_end=3,
+        text="Inspect the fuel lines before launch.",
+        score=0.91,
+    )
+
+    finalized = _finalize_generated_answer(
+        answer=GeneratedAnswer(
+            answer_text=(
+                "Inspect the fuel lines before launch. "
+                "Check coolant pressure after launch."
+            ),
+            supported=True,
+            citations=[context],
+            answer_mode="synthesis",
+        ),
+        question="What should happen before launch?",
+        contexts=[context],
+        fallback_mode="synthesis",
+    )
+
+    assert finalized.supported is True
+    assert finalized.answer_mode == "synthesis"
+    assert finalized.verification is not None
+    assert finalized.verification.verified is True
+    assert finalized.answer_text == "Inspect the fuel lines before launch."
+    assert len(finalized.citations) == 1
+
+
+def test_finalize_generated_answer_returns_unsupported_when_repair_is_still_weak() -> None:
+    weak_context = RetrievedChunkContext(
+        chunk_id="chunk-1",
+        document_id="doc-1",
+        document_title="Systems Manual",
+        document_filename="systems.pdf",
+        chunk_index=0,
+        page_start=8,
+        page_end=8,
+        text="The manual briefly mentions launch procedures.",
+        score=0.12,
+    )
+
+    finalized = _finalize_generated_answer(
+        answer=GeneratedAnswer(
+            answer_text=(
+                "The manual briefly mentions launch procedures. "
+                "Inspect the fuel lines before launch."
+            ),
+            supported=True,
+            citations=[weak_context],
+            answer_mode="synthesis",
+        ),
+        question="What should happen before launch?",
+        contexts=[weak_context],
+        fallback_mode="synthesis",
+    )
+
+    assert finalized.supported is False
+    assert finalized.answer_mode == "unsupported"
+    assert finalized.verification is not None
 
 
 def test_openai_compatible_provider_maps_insufficient_support(monkeypatch) -> None:

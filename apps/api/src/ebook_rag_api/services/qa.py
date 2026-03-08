@@ -1355,6 +1355,36 @@ def build_claim_verification_prompt(
     )
 
 
+def build_answer_repair_prompt(
+    *,
+    question: str,
+    supported_claims: list[ClaimVerification],
+) -> str:
+    claim_blocks = []
+    for index, claim in enumerate(supported_claims, start=1):
+        evidence_labels = ", ".join(
+            f"pp. {citation.page_start}-{citation.page_end}"
+            for citation in claim.citations
+        )
+        claim_blocks.append(
+            f"{index}. Claim: {claim.claim_text}\n"
+            f"   Evidence pages: {evidence_labels or 'unknown'}"
+        )
+
+    joined_claims = "\n".join(claim_blocks)
+    return (
+        f"Question: {question}\n\n"
+        "Supported claims:\n"
+        f"{joined_claims}\n\n"
+        "Instructions:\n"
+        "- Rewrite the supported claims into one concise grounded answer.\n"
+        "- Use only the supported claims listed above.\n"
+        "- Do not add caveats, speculation, or unsupported details.\n"
+        "- Keep the answer direct and factual.\n"
+        "- If the supported claims are still insufficient to answer, reply exactly with INSUFFICIENT_SUPPORT.\n"
+    )
+
+
 def extract_chat_completion_text(payload: dict) -> str:
     choices = payload.get("choices", [])
     if not choices:
@@ -2511,21 +2541,25 @@ def _finalize_generated_answer(
     if not answer.supported or is_unsupported_answer_text(answer.answer_text):
         return _unsupported_answer(confidence=0.74, support_score=0.0)
 
-    citations = answer.citations or select_evidence_citations(
-        answer_text=answer.answer_text,
-        contexts=contexts,
-        question_text=question,
+    finalized_answer = replace(
+        answer,
+        citations=answer.citations
+        or select_evidence_citations(
+            answer_text=answer.answer_text,
+            contexts=contexts,
+            question_text=question,
+        ),
     )
     support_score = _compute_support_score(
         question=question,
-        answer_text=answer.answer_text,
-        citations=citations,
+        answer_text=finalized_answer.answer_text,
+        citations=finalized_answer.citations,
     )
     verification = verify_answer_claims(
         question=question,
-        answer_text=answer.answer_text,
+        answer_text=finalized_answer.answer_text,
         contexts=contexts,
-        citations=citations,
+        citations=finalized_answer.citations,
         provider=verification_provider,
     )
     verification_score = verification.average_claim_score
@@ -2534,19 +2568,29 @@ def _finalize_generated_answer(
         support_score * 0.35
         + verification_score * 0.65,
     )
-    if support_score < 0.45 or not verification.verified:
-        return _unsupported_answer(
-            confidence=0.7,
-            support_score=support_score,
-            verification=verification,
-        )
-
-    confidence = min(0.98, max(0.35, 0.45 + support_score * 0.5))
-    return replace(
-        answer,
-        citations=citations,
+    finalized_answer = replace(
+        finalized_answer,
+        citations=finalized_answer.citations,
         answer_mode=fallback_mode,
-        confidence=confidence,
+        confidence=min(0.98, max(0.35, 0.45 + support_score * 0.5)),
+        support_score=support_score,
+        verification=verification,
+    )
+    if support_score >= 0.45 and verification.verified:
+        return finalized_answer
+
+    repaired_answer = _repair_partially_supported_answer(
+        question=question,
+        answer=finalized_answer,
+        contexts=contexts,
+        fallback_mode=fallback_mode,
+        verification_provider=verification_provider,
+    )
+    if repaired_answer is not None:
+        return repaired_answer
+
+    return _unsupported_answer(
+        confidence=0.7,
         support_score=support_score,
         verification=verification,
     )
@@ -2582,6 +2626,116 @@ def _unsupported_answer(
         support_score=support_score,
         verification=verification,
     )
+
+
+def _repair_partially_supported_answer(
+    *,
+    question: str,
+    answer: GeneratedAnswer,
+    contexts: list[RetrievedChunkContext],
+    fallback_mode: str,
+    verification_provider: OpenAICompatibleAnswerProvider | None = None,
+) -> GeneratedAnswer | None:
+    verification = answer.verification
+    if verification is None or verification.verified:
+        return None
+
+    supported_claims = [claim for claim in verification.claims if claim.supported]
+    if not supported_claims:
+        return None
+
+    repaired_text = _build_repaired_answer_text(
+        question=question,
+        supported_claims=supported_claims,
+        provider=verification_provider,
+    )
+    if not repaired_text or is_unsupported_answer_text(repaired_text):
+        return None
+
+    repaired_citations = _merge_claim_citations(supported_claims)
+    if not repaired_citations:
+        repaired_citations = select_evidence_citations(
+            answer_text=repaired_text,
+            contexts=contexts,
+            question_text=question,
+        )
+    if not repaired_citations:
+        return None
+
+    repaired_verification = verify_answer_claims(
+        question=question,
+        answer_text=repaired_text,
+        contexts=contexts,
+        citations=repaired_citations,
+        provider=verification_provider,
+    )
+    repaired_support_score = _compute_support_score(
+        question=question,
+        answer_text=repaired_text,
+        citations=repaired_citations,
+    )
+    repaired_support_score = min(
+        1.0,
+        repaired_support_score * 0.35 + repaired_verification.average_claim_score * 0.65,
+    )
+    if repaired_support_score < 0.45 or not repaired_verification.verified:
+        return None
+
+    confidence = min(0.94, max(0.32, 0.4 + repaired_support_score * 0.45))
+    return GeneratedAnswer(
+        answer_text=repaired_text,
+        supported=True,
+        citations=repaired_citations,
+        answer_mode=fallback_mode,
+        confidence=confidence,
+        support_score=repaired_support_score,
+        verification=repaired_verification,
+    )
+
+
+def _build_repaired_answer_text(
+    *,
+    question: str,
+    supported_claims: list[ClaimVerification],
+    provider: OpenAICompatibleAnswerProvider | None = None,
+) -> str:
+    if provider is not None:
+        repaired_text = provider.complete(
+            system_prompt=(
+                "You rewrite grounded answers using only already-verified supported claims. "
+                "Do not add new facts or caveats."
+            ),
+            user_prompt=build_answer_repair_prompt(
+                question=question,
+                supported_claims=supported_claims,
+            ),
+        )
+        if repaired_text:
+            return repaired_text.strip()
+    return " ".join(_ensure_terminal_punctuation(claim.claim_text) for claim in supported_claims)
+
+
+def _merge_claim_citations(
+    claims: list[ClaimVerification],
+) -> list[RetrievedChunkContext]:
+    merged: list[RetrievedChunkContext] = []
+    seen_chunk_ids: set[str] = set()
+    for claim in claims:
+        for citation in claim.citations:
+            if citation.chunk_id in seen_chunk_ids:
+                continue
+            merged.append(citation)
+            seen_chunk_ids.add(citation.chunk_id)
+    return merged
+
+
+def _ensure_terminal_punctuation(text: str) -> str:
+    stripped = text.strip()
+    if not stripped:
+        return ""
+    if stripped.endswith((".", "!", "?")):
+        return stripped
+    return f"{stripped}."
 
 
 def _compute_support_score(

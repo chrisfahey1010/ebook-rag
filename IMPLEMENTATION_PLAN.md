@@ -192,7 +192,6 @@ Implemented:
 Still missing:
 
 - task-specific unsupported-classification prompts as a first-class stage rather than a downgrade outcome
-- answer repair/rewrite behavior when only part of a generated answer is unsupported
 - stronger benchmark-driven validation that the new verifier materially improves the harder failing suites
 
 #### Concrete backend work
@@ -381,12 +380,13 @@ As of March 8, 2026, the first pass of that slice has landed in code:
 - the backend now returns support/confidence metadata plus router rationale
 - the web UI now exposes active embedding, reranker, and answer runtime details
 - the OpenAI-compatible QA path now includes a dedicated unsupported-classification prompt before generation on higher-risk questions such as multi-facet, numeric/date-constrained, and lower-confidence retrieval cases
+- the QA finalization path can now salvage partially supported generated answers by rewriting or trimming them down to verified supported claims before falling back to `unsupported`
 
 That means the next follow-up work should narrow to:
 
 1. refresh benchmark artifacts and remove any remaining overstated quality claims
 2. benchmark the new router/support thresholds against Amazon and the stable regression suites
-3. add partial-answer repair or rewrite behavior when generation produces a mix of supported and unsupported claims
+3. tune and benchmark the new partial-answer repair path on Amazon and other citation-sensitive suites
 
 ## Resolved decisions
 
