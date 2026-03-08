@@ -76,17 +76,27 @@ def build_document_chunks(
     current: list[PageParagraph] = []
     current_words = 0
     chunk_index = 0
-    active_heading: str | None = None
+    active_heading_path: list[str] = []
 
     for paragraph in paragraphs:
         paragraph_words = len(paragraph.text.split())
         if paragraph.is_heading:
             if _chunk_has_body(current):
-                chunks.append(_create_chunk(chunk_index, current, active_heading))
+                chunks.append(
+                    _create_chunk(
+                        chunk_index,
+                        current,
+                        active_heading_path=active_heading_path,
+                    )
+                )
                 chunk_index += 1
                 current = []
                 current_words = 0
-            active_heading = paragraph.text
+                active_heading_path = []
+            if current and all(item.is_heading for item in current):
+                active_heading_path = [*active_heading_path, paragraph.text]
+            else:
+                active_heading_path = [paragraph.text]
             current.append(paragraph)
             current_words += paragraph_words
             continue
@@ -97,7 +107,13 @@ def build_document_chunks(
             and _chunk_has_body(current)
             and current_words >= config.min_words
         ):
-            chunks.append(_create_chunk(chunk_index, current, active_heading))
+            chunks.append(
+                _create_chunk(
+                    chunk_index,
+                    current,
+                    active_heading_path=active_heading_path,
+                )
+            )
             chunk_index += 1
             current = _overlap_tail(current, overlap_words=config.overlap_words)
             current_words = sum(len(item.text.split()) for item in current)
@@ -106,7 +122,13 @@ def build_document_chunks(
         current_words += paragraph_words
 
     if _chunk_has_body(current):
-        chunks.append(_create_chunk(chunk_index, current, active_heading))
+        chunks.append(
+            _create_chunk(
+                chunk_index,
+                current,
+                active_heading_path=active_heading_path,
+            )
+        )
 
     return chunks
 
@@ -114,12 +136,14 @@ def build_document_chunks(
 def _create_chunk(
     chunk_index: int,
     paragraphs: list[PageParagraph],
-    active_heading: str | None,
+    *,
+    active_heading_path: list[str],
 ) -> DocumentChunk:
     text = "\n\n".join(item.text for item in paragraphs)
     page_numbers = sorted({item.page_number for item in paragraphs})
     first_paragraph = paragraphs[0]
     last_paragraph = paragraphs[-1]
+    heading_path = _resolve_heading_path(paragraphs, active_heading_path)
     paragraphs_by_page: dict[int, list[PageParagraph]] = {}
     for paragraph in paragraphs:
         paragraphs_by_page.setdefault(paragraph.page_number, []).append(paragraph)
@@ -127,12 +151,13 @@ def _create_chunk(
         chunk_index=chunk_index,
         page_start=page_numbers[0],
         page_end=page_numbers[-1],
-        heading=_resolve_heading(paragraphs, active_heading),
+        heading=_resolve_heading(heading_path),
         text=text,
         token_estimate=estimate_token_count(text),
         provenance={
             "source_page_numbers": page_numbers,
             "paragraph_count": len(paragraphs),
+            "heading_path": heading_path,
             "paragraph_range": {
                 "start": first_paragraph.global_index,
                 "end": last_paragraph.global_index,
@@ -194,11 +219,23 @@ def _chunk_has_body(paragraphs: list[PageParagraph]) -> bool:
     return any(not paragraph.is_heading for paragraph in paragraphs)
 
 
-def _resolve_heading(paragraphs: list[PageParagraph], active_heading: str | None) -> str | None:
-    for paragraph in paragraphs:
-        if paragraph.is_heading:
-            return paragraph.text
-    return active_heading
+def _resolve_heading_path(
+    paragraphs: list[PageParagraph],
+    active_heading_path: list[str],
+) -> list[str]:
+    inline_heading_path = [paragraph.text for paragraph in paragraphs if paragraph.is_heading]
+    if inline_heading_path:
+        return inline_heading_path
+    return list(active_heading_path)
+
+
+def _resolve_heading(heading_path: list[str]) -> str | None:
+    if not heading_path:
+        return None
+    heading_lines = [line.strip() for line in heading_path[-1].splitlines() if line.strip()]
+    if not heading_lines:
+        return None
+    return heading_lines[-1]
 
 
 def is_heading_block(text: str, *, max_heading_words: int) -> bool:

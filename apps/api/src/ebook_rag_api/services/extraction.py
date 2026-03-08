@@ -45,6 +45,14 @@ def normalize_document_pages(
         normalized_lines_by_page,
         take_first=False,
     )
+    repeated_header_block_signatures = _find_repeated_boundary_block_signatures(
+        normalized_lines_by_page,
+        take_first=True,
+    )
+    repeated_footer_block_signatures = _find_repeated_boundary_block_signatures(
+        normalized_lines_by_page,
+        take_first=False,
+    )
 
     normalized_pages: list[str] = []
     for lines in normalized_lines_by_page:
@@ -52,6 +60,8 @@ def normalize_document_pages(
             lines,
             repeated_header_signatures=repeated_header_signatures,
             repeated_footer_signatures=repeated_footer_signatures,
+            repeated_header_block_signatures=repeated_header_block_signatures,
+            repeated_footer_block_signatures=repeated_footer_block_signatures,
         )
         normalized_pages.append(
             _normalize_page_lines(
@@ -65,6 +75,7 @@ def normalize_document_pages(
 def _normalize_page_lines(lines: list[str], *, max_heading_words: int) -> str:
     paragraphs: list[str] = []
     current_lines: list[str] = []
+    current_heading_lines: list[str] = []
 
     def flush_current() -> None:
         if not current_lines:
@@ -72,18 +83,27 @@ def _normalize_page_lines(lines: list[str], *, max_heading_words: int) -> str:
         paragraphs.append(" ".join(current_lines))
         current_lines.clear()
 
+    def flush_heading() -> None:
+        if not current_heading_lines:
+            return
+        paragraphs.append("\n".join(current_heading_lines))
+        current_heading_lines.clear()
+
     for line in lines:
         if not line:
+            flush_heading()
             flush_current()
             continue
 
         if _is_heading_line(line, max_heading_words=max_heading_words):
             flush_current()
-            paragraphs.append(line)
+            current_heading_lines.append(line)
             continue
 
+        flush_heading()
         current_lines.append(line)
 
+    flush_heading()
     flush_current()
     normalized = "\n\n".join(paragraphs)
     normalized = BLANK_LINE_RE.sub("\n\n", normalized).strip()
@@ -115,13 +135,48 @@ def _find_repeated_boundary_signatures(
     }
 
 
+def _find_repeated_boundary_block_signatures(
+    normalized_lines_by_page: list[list[str]],
+    *,
+    take_first: bool,
+) -> set[str]:
+    signature_counts: dict[str, int] = {}
+    for lines in normalized_lines_by_page:
+        signature = _boundary_block_signature(lines, take_first=take_first)
+        if signature is None:
+            continue
+        signature_counts[signature] = signature_counts.get(signature, 0) + 1
+
+    minimum_repetitions = 3
+    return {
+        signature
+        for signature, count in signature_counts.items()
+        if count >= minimum_repetitions
+    }
+
+
 def _strip_repeated_boundary_noise(
     lines: list[str],
     *,
     repeated_header_signatures: set[str],
     repeated_footer_signatures: set[str],
+    repeated_header_block_signatures: set[str],
+    repeated_footer_block_signatures: set[str],
 ) -> list[str]:
     cleaned_lines = list(lines)
+
+    if repeated_header_block_signatures:
+        _strip_boundary_block_if_repeated(
+            cleaned_lines,
+            repeated_block_signatures=repeated_header_block_signatures,
+            take_first=True,
+        )
+    if repeated_footer_block_signatures:
+        _strip_boundary_block_if_repeated(
+            cleaned_lines,
+            repeated_block_signatures=repeated_footer_block_signatures,
+            take_first=False,
+        )
 
     while True:
         first_index = _first_non_empty_index(cleaned_lines)
@@ -146,16 +201,50 @@ def _strip_repeated_boundary_noise(
     return cleaned_lines
 
 
+def _strip_boundary_block_if_repeated(
+    lines: list[str],
+    *,
+    repeated_block_signatures: set[str],
+    take_first: bool,
+) -> None:
+    boundary_indexes = _boundary_non_empty_indexes(lines, take_first=take_first)
+    if len(boundary_indexes) < 2:
+        return
+
+    signature = _boundary_block_signature(lines, take_first=take_first)
+    if signature not in repeated_block_signatures:
+        return
+
+    for index in boundary_indexes[:2]:
+        lines[index] = ""
+
+
 def _boundary_lines(lines: list[str], *, take_first: bool, limit: int = 2) -> list[str]:
     boundary_lines: list[str] = []
-    indexes = range(len(lines)) if take_first else range(len(lines) - 1, -1, -1)
-    for index in indexes:
+    for index in _boundary_non_empty_indexes(lines, take_first=take_first):
         if not lines[index]:
             continue
         boundary_lines.append(lines[index])
         if len(boundary_lines) >= limit:
             break
     return boundary_lines
+
+
+def _boundary_non_empty_indexes(
+    lines: list[str],
+    *,
+    take_first: bool,
+    limit: int = 2,
+) -> list[int]:
+    indexes = range(len(lines)) if take_first else range(len(lines) - 1, -1, -1)
+    boundary_indexes: list[int] = []
+    for index in indexes:
+        if not lines[index]:
+            continue
+        boundary_indexes.append(index)
+        if len(boundary_indexes) >= limit:
+            break
+    return boundary_indexes
 
 
 def _first_non_empty_index(lines: list[str]) -> int | None:
@@ -191,6 +280,20 @@ def _boundary_signature(line: str) -> str | None:
     lowered = NON_ALNUM_RE.sub(" ", lowered)
     lowered = WHITESPACE_RE.sub(" ", lowered).strip()
     return lowered or None
+
+
+def _boundary_block_signature(lines: list[str], *, take_first: bool) -> str | None:
+    boundary_lines = _boundary_lines(lines, take_first=take_first, limit=2)
+    if len(boundary_lines) < 2:
+        return None
+
+    line_signatures: list[str] = []
+    for line in boundary_lines:
+        signature = _boundary_signature(line)
+        if signature is None:
+            return None
+        line_signatures.append(signature)
+    return " | ".join(line_signatures)
 
 
 def _is_page_number_line(line: str) -> bool:

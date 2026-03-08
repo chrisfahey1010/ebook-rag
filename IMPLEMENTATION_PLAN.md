@@ -44,7 +44,9 @@ The main gap is that several critical pieces are still baseline implementations:
 - benchmark definitions now support inherited suite/document `regression_tier` defaults and benchmark reports now summarize per-document gating versus exploratory failures so the regression lane is explicit instead of implicit
 - the remaining quality risk is benchmark breadth rather than the specific long-document misses that were driving recent tuning loops
 - ingestion now persists the chunking configuration used for each document, stores per-chunk provenance metadata for debug inspection, and exposes reprocessing/status controls in the UI
+- ingestion now groups stacked heading lines into single heading blocks, strips repeated two-line header/footer boundary blocks, and records heading-path provenance on chunks for more faithful section metadata
 - chunk sizing is now configurable and benchmarkable through the eval runner, but the chosen defaults are still heuristic rather than benchmark-locked
+- the March 8, 2026 ingestion-quality pass improved normalization and heading metadata structure, but the full benchmark sweep did not show a measurable end-to-end quality lift on the current suites, so the next ingestion work should be driven by targeted benchmark additions rather than more heuristic tweaking
 
 ## Planning principles
 
@@ -195,13 +197,13 @@ This milestone is now in progress with the first implementation slice completed.
   - exposed chunk provenance through retrieval results, QA citations, and QA traces
   - web UI controls for ingestion status refresh and document reprocessing
   - eval runner support for chunking presets and overrides
+- completed:
+  - detect repeated two-line header/footer boundary blocks during normalization
+  - preserve consecutive heading lines as a single heading block instead of fragmenting stacked headings
+  - record heading-path provenance on chunks while keeping the chunk heading field focused on the most specific heading line
 - remaining:
-  - improve text normalization:
-    - detect repeated headers/footers where feasible
-    - preserve headings more intentionally
-    - keep page mappings explicit
-  - improve chunk metadata:
-    - heading or section label when detectable
+  - add targeted benchmark coverage for repeated multi-line headers/footers and stacked heading blocks so ingestion changes are measured directly
+  - keep page mappings explicit in any future normalization changes
   - revisit chunk sizing:
     - current chunking defaults are still smaller than the spec target
     - benchmark a few chunk sizes and promote one to the documented default instead of choosing by intuition
@@ -216,6 +218,7 @@ Keep synchronous ingestion for the immediate next milestone unless upload latenc
 - users can reprocess a document after changing models or chunking settings
 - ingestion failures are inspectable without reading logs
 - chunk structure is benchmarked and documented
+- ingestion-specific normalization and heading heuristics are covered by targeted regression fixtures rather than only by broad end-to-end suites
 
 ### Milestone 4: Make grounded answering more robust
 

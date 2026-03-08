@@ -12,7 +12,15 @@ def test_normalize_page_text_preserves_heading_blocks_and_joins_soft_wraps() -> 
         "Chapter 7\nThe Long Ride\ncontinued across the county line\n\nPage 7"
     )
 
-    assert normalized == "Chapter 7\n\nThe Long Ride\n\ncontinued across the county line\n\nPage 7"
+    assert normalized == "Chapter 7\nThe Long Ride\n\ncontinued across the county line\n\nPage 7"
+
+
+def test_normalize_page_text_groups_consecutive_heading_lines_into_one_block() -> None:
+    normalized = normalize_page_text(
+        "Part II\nThe Long Ride\n\nThe county line came into view."
+    )
+
+    assert normalized == "Part II\nThe Long Ride\n\nThe county line came into view."
 
 
 def test_normalize_document_pages_removes_repeated_headers_footers_and_page_numbers() -> None:
@@ -58,4 +66,20 @@ def test_normalize_document_pages_preserves_headings_after_boundary_cleanup() ->
         "Chapter One\n\nBattery checks begin here and continue on the next line.",
         "Chapter Two\n\nWheel checks start here and continue on the next line.",
         "Chapter Three\n\nRadio checks begin here and continue on the next line.",
+    ]
+
+
+def test_normalize_document_pages_removes_repeated_two_line_header_blocks() -> None:
+    normalized_pages = normalize_document_pages(
+        [
+            "The Great Book\nBy Jane Example\n\nOpening body paragraph.\n\n1",
+            "The Great Book\nBy Jane Example\n\nMiddle body paragraph.\n\n2",
+            "The Great Book\nBy Jane Example\n\nClosing body paragraph.\n\n3",
+        ]
+    )
+
+    assert normalized_pages == [
+        "Opening body paragraph.",
+        "Middle body paragraph.",
+        "Closing body paragraph.",
     ]

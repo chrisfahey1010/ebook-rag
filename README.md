@@ -89,7 +89,9 @@ Current implementation includes:
 - SQLAlchemy database wiring with Alembic migrations
 - PDF upload, file registration, and PyMuPDF extraction
 - persisted per-page text with repeated header/footer cleanup and page-number stripping
+- repeated two-line header/footer boundary-block cleanup during normalization
 - larger paragraph-aware chunks with section heading metadata
+- stacked heading preservation and per-chunk heading-path provenance for debug inspection
 - persisted per-document chunking configuration and per-chunk provenance metadata for debug inspection
 - persisted normalized-text character-span provenance per chunk and paragraph for page-local citation debugging
 - chunk embeddings generated during ingestion
@@ -136,6 +138,7 @@ Current limitations:
 - PostgreSQL vector storage now follows the configured embedding dimension, but changing dimensions requires running migrations and reprocessing existing documents
 - chunk sizing is now benchmark-backed for the current fixture set, but the benchmark still needs broader real-document coverage before the defaults should be treated as final
 - context assembly is still heuristic even though answer traces now separate selected context from cited evidence
+- the March 8, 2026 ingestion-quality pass improved normalization and heading metadata structure, but the current benchmark suites did not show a measurable end-to-end quality lift from those ingestion changes alone
 - the long-document benchmark now has better unsupported-answer rejection, less metadata/front-matter confusion, and stronger date-specific citation tie-breaking, but it still misses some exact-page citation targets and page-local fact questions on long books
 - nickname-specific and some page-local/date-specific questions in the long-document benchmark can still retrieve the right neighborhood but choose the wrong sentence or citation page
 - the benchmark suite now includes a broader local real-document fixture set in `apps/api/benchmarks/local/`, including `hells_angels.pdf`, `amazon_quarterly_earnings2025Q4.pdf`, `john_deere_mower_manual.pdf`, `infinite_jest.pdf`, `qwen3_technical_report.pdf`, and `gpt-5-4_thinking_card.pdf`, and each of those documents is now wired into a dedicated benchmark JSON; the remaining risk is benchmark breadth, question stability, and excerpt-level gating discipline rather than fixture coverage itself
@@ -156,7 +159,7 @@ Current limitations:
 - `GET /api/debug/documents/{document_id}/chunks`
 - `POST /api/debug/rerank`
 
-Upload registers the PDF, computes its SHA-256 checksum, stores the file locally, extracts per-page text with PyMuPDF, removes repeated boundary noise such as headers, footers, and standalone page numbers when detectable, collapses soft-wrapped body lines while preserving short heading blocks, builds larger paragraph-aware chunks with page spans, token estimates, and heading metadata, generates embeddings, persists the records, and returns document plus ingestion status metadata.
+Upload registers the PDF, computes its SHA-256 checksum, stores the file locally, extracts per-page text with PyMuPDF, removes repeated boundary noise such as headers, footers, standalone page numbers, and repeated two-line boundary blocks when detectable, collapses soft-wrapped body lines while preserving short stacked heading blocks, builds larger paragraph-aware chunks with page spans, token estimates, heading metadata, and heading-path provenance, generates embeddings, persists the records, and returns document plus ingestion status metadata.
 
 Reprocessing reruns extraction and embedding generation for an existing document, which is useful after changing embedding models, embedding dimensions, or chunking settings. Each indexed document now persists the chunking configuration that was used, and debug chunk inspection also includes page, paragraph, and normalized-text character-span provenance metadata so reprocessing decisions are easier to reason about.
 
@@ -218,6 +221,14 @@ uv run python scripts/run_eval.py --benchmark benchmarks/qwen3_technical_report_
 uv run python scripts/run_eval.py --benchmark benchmarks/gpt_5_4_thinking_card_eval.json
 uv run python scripts/run_eval.py --benchmark benchmarks/infinite_jest_eval.json
 ```
+
+The committed gating regression suite can be rerun with:
+
+```bash
+uv run python scripts/run_regression_suite.py
+```
+
+The latest March 8, 2026 benchmark sweep kept the gated regression suite green on answer quality, but did not show a measurable end-to-end quality improvement from the recent ingestion-only changes. Treat the current ingestion heuristics as structural/debuggability improvements and add targeted benchmark cases before doing more ingestion tuning.
 
 The `infinite_jest` benchmark is intentionally exploratory for now, while the manual/report/system-card benchmarks are intended to add stable coverage for exact spec lookup, front-matter noise, acronym-heavy technical QA, and unsupported-answer behavior beyond the earlier `hells_angels` and Amazon earnings harnesses.
 

@@ -62,7 +62,30 @@ def test_build_document_chunks_preserves_section_heading_metadata() -> None:
     assert chunks
     assert chunks[0].heading == "Chapter 3"
     assert chunks[0].text.startswith("Chapter 3")
+    assert chunks[0].provenance["heading_path"] == ["Chapter 3"]
     assert any(chunk.heading == "Epilogue" for chunk in chunks)
+
+
+def test_build_document_chunks_uses_most_specific_heading_line_from_stacked_heading_block() -> None:
+    pages = [
+        DocumentPage(
+            page_number=1,
+            raw_text="",
+            normalized_text="\n\n".join(
+                [
+                    "Part II\nThe Long Ride",
+                    "The road stretched out ahead " + "alpha " * 120,
+                    "The county line drifted past " + "beta " * 110,
+                ]
+            ),
+        )
+    ]
+
+    chunks = build_document_chunks(pages)
+
+    assert chunks
+    assert chunks[0].heading == "The Long Ride"
+    assert chunks[0].provenance["heading_path"] == ["Part II\nThe Long Ride"]
 
 
 def test_build_document_chunks_respects_configured_chunk_sizes() -> None:
