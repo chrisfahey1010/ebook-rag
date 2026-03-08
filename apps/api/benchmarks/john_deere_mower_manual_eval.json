@@ -1,0 +1,54 @@
+{
+  "name": "john-deere-mower-manual-eval",
+  "documents": [
+    {
+      "filename": "john_deere_mower_manual.pdf",
+      "source_pdf": "benchmarks/local/john_deere_mower_manual.pdf",
+      "questions": [
+        {
+          "question": "What three actions should you take when leaving the machine?",
+          "expected_supported": true,
+          "expected_answer_contains": ["stop the engine", "set the park brake", "remove the key"],
+          "expected_citation_pages": [10],
+          "expected_citation_text_contains": ["Stop the engine", "Set the park brake", "Remove the key"],
+          "citation_text_match_mode": "all"
+        },
+        {
+          "question": "If the machine loses traction on a slope, what should you do, and what direction should you drive on slopes?",
+          "expected_supported": true,
+          "expected_answer_contains": ["stop the blade", "proceed slowly off the slope", "drive up and down slopes", "not across them"],
+          "expected_citation_pages": [10],
+          "expected_citation_text_contains": ["If the machine loses traction on a slope, stop the blade, and proceed slowly off the slope", "Drive up and down slopes, not across them"],
+          "citation_text_match_mode": "all"
+        },
+        {
+          "question": "What should you not use to clear a plugged mower deck or blower assembly?",
+          "expected_supported": true,
+          "expected_answer_contains": ["do not use hands or feet"],
+          "expected_citation_pages": [32],
+          "expected_citation_text_contains": ["Do not use hands or feet to clear plugged mower deck or blower assembly"]
+        },
+        {
+          "question": "What should you do before cleaning the machine to avoid equipment fires?",
+          "expected_supported": true,
+          "expected_answer_contains": ["shut off engine", "allow machine to cool"],
+          "expected_citation_pages": [11],
+          "expected_citation_text_contains": ["Shut off engine and allow machine to cool before cleaning"],
+          "citation_text_match_mode": "all"
+        },
+        {
+          "question": "When moving the machine by hand, what does the manual say about using another vehicle?",
+          "expected_supported": true,
+          "expected_answer_contains": ["do not use another vehicle"],
+          "expected_citation_pages": [32],
+          "expected_citation_text_contains": ["Do not use another vehicle to move machine"]
+        },
+        {
+          "question": "What does the manual say about enabling autonomous GPS mowing mode?",
+          "expected_supported": false,
+          "expected_citation_pages": []
+        }
+      ]
+    }
+  ]
+}

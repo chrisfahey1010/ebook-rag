@@ -208,7 +208,16 @@ uv run python scripts/run_eval.py --benchmark benchmarks/hells_angels_eval.json
 uv run python scripts/run_eval.py --benchmark benchmarks/amazon_earnings_eval.json
 ```
 
-The local fixture library under [`apps/api/benchmarks/local/`](/home/chris/repos/ebook-rag/apps/api/benchmarks/local) now also includes [`john_deere_mower_manual.pdf`](/home/chris/repos/ebook-rag/apps/api/benchmarks/local/john_deere_mower_manual.pdf), [`infinite_jest.pdf`](/home/chris/repos/ebook-rag/apps/api/benchmarks/local/infinite_jest.pdf), [`qwen3_technical_report.pdf`](/home/chris/repos/ebook-rag/apps/api/benchmarks/local/qwen3_technical_report.pdf), and [`gpt-5-4_thinking_card.pdf`](/home/chris/repos/ebook-rag/apps/api/benchmarks/local/gpt-5-4_thinking_card.pdf). Those documents broaden future benchmark coverage across equipment manuals, very long literary prose, research-report style technical writing, and model/system-card style factual summaries. As new benchmark JSONs are added, use them to stress exact spec lookup, front-matter noise, long-range narrative retrieval, acronym-heavy technical QA, and citation-granularity behavior beyond the current `hells_angels` and Amazon earnings harnesses.
+The repo now also includes dedicated benchmark definitions for [`john_deere_mower_manual_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/john_deere_mower_manual_eval.json), [`infinite_jest_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/infinite_jest_eval.json), [`qwen3_technical_report_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/qwen3_technical_report_eval.json), and [`gpt_5_4_thinking_card_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/gpt_5_4_thinking_card_eval.json). Together with the local fixture library under [`apps/api/benchmarks/local/`](/home/chris/repos/ebook-rag/apps/api/benchmarks/local), those benchmarks broaden repeatable regression coverage across equipment manuals, very long literary prose, research-report style technical writing, and model/system-card style factual summaries:
+
+```bash
+uv run python scripts/run_eval.py --benchmark benchmarks/john_deere_mower_manual_eval.json
+uv run python scripts/run_eval.py --benchmark benchmarks/qwen3_technical_report_eval.json
+uv run python scripts/run_eval.py --benchmark benchmarks/gpt_5_4_thinking_card_eval.json
+uv run python scripts/run_eval.py --benchmark benchmarks/infinite_jest_eval.json
+```
+
+The `infinite_jest` benchmark is intentionally exploratory for now, while the manual/report/system-card benchmarks are intended to add stable coverage for exact spec lookup, front-matter noise, acronym-heavy technical QA, and unsupported-answer behavior beyond the earlier `hells_angels` and Amazon earnings harnesses.
 
 For page-local citation regression coverage, there is also a focused benchmark with sentence-level citation expectations:
 

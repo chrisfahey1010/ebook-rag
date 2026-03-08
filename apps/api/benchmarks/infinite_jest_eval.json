@@ -1,0 +1,59 @@
+{
+  "name": "infinite-jest-eval",
+  "documents": [
+    {
+      "filename": "infinite_jest.pdf",
+      "source_pdf": "benchmarks/local/infinite_jest.pdf",
+      "questions": [
+        {
+          "question": "At the beginning of the novel, where is the narrator seated?",
+          "expected_supported": true,
+          "expected_answer_contains": ["an office", "university administration"],
+          "expected_citation_pages": [2],
+          "expected_citation_text_contains": ["I am seated in an office", "This is a cold room in University Administration"],
+          "citation_text_match_mode": "all",
+          "regression_tier": "exploratory"
+        },
+        {
+          "question": "Which university's tennis squad has profited from prior Enfield Tennis Academy alumni?",
+          "expected_supported": true,
+          "expected_answer_contains": ["university of arizona"],
+          "expected_citation_pages": [2],
+          "expected_citation_text_contains": ["the University of Arizona tennis squad has profited from the prior matriculation of several former E.T.A. alumni"],
+          "regression_tier": "exploratory"
+        },
+        {
+          "question": "Which academy prorector is in the room with Hal during the university meeting?",
+          "expected_supported": true,
+          "expected_answer_contains": ["a. delint"],
+          "expected_citation_pages": [2],
+          "expected_citation_text_contains": ["Academy prorector Mr. A. deLint"],
+          "regression_tier": "exploratory"
+        },
+        {
+          "question": "What whiskey does ten-year-old Hal say his father drinks at 5:00 A.M.?",
+          "expected_supported": true,
+          "expected_answer_contains": ["wild turkey"],
+          "expected_citation_pages": [13],
+          "expected_citation_text_contains": ["drinks Wild Turkey at like 5:00 A.M."],
+          "regression_tier": "exploratory"
+        },
+        {
+          "question": "What sport is Hal being recruited for, and by which university?",
+          "expected_supported": true,
+          "expected_answer_contains": ["tennis", "university of arizona"],
+          "expected_citation_pages": [2],
+          "expected_citation_text_contains": ["varsity tennis coach", "University of Arizona tennis squad"],
+          "citation_text_match_mode": "all",
+          "regression_tier": "exploratory"
+        },
+        {
+          "question": "What does the novel say about social media moderation policies?",
+          "expected_supported": false,
+          "expected_citation_pages": [],
+          "regression_tier": "exploratory"
+        }
+      ]
+    }
+  ]
+}

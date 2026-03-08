@@ -1,0 +1,53 @@
+{
+  "name": "gpt-5-4-thinking-card-eval",
+  "documents": [
+    {
+      "filename": "gpt-5-4_thinking_card.pdf",
+      "source_pdf": "benchmarks/local/gpt-5-4_thinking_card.pdf",
+      "questions": [
+        {
+          "question": "Because there is no GPT-5.3 Thinking model, which model does the card say is the main baseline for GPT-5.4 Thinking?",
+          "expected_supported": true,
+          "expected_answer_contains": ["gpt-5.2 thinking"],
+          "expected_citation_pages": [4],
+          "expected_citation_text_contains": ["there is not a model named GPT-5.3 Thinking", "the main model to baseline against is GPT-5.2 Thinking"],
+          "citation_text_match_mode": "all"
+        },
+        {
+          "question": "GPT-5.4 Thinking is the first general purpose model to implement mitigations for what capability area?",
+          "expected_supported": true,
+          "expected_answer_contains": ["high capability in cybersecurity"],
+          "expected_citation_pages": [4],
+          "expected_citation_text_contains": ["the first general purpose model to have implemented mitigations for High capability in Cybersecurity"]
+        },
+        {
+          "question": "Which three domains are covered by the dynamic multi-turn evaluations described in the card?",
+          "expected_supported": true,
+          "expected_answer_contains": ["mental health", "emotional reliance", "self-harm"],
+          "expected_citation_pages": [5],
+          "expected_citation_text_contains": ["mental health", "emotional reliance", "self-harm"],
+          "citation_text_match_mode": "all"
+        },
+        {
+          "question": "What combined Cyber Range pass rate does the card report for GPT-5.4 Thinking?",
+          "expected_supported": true,
+          "expected_answer_contains": ["73.33%"],
+          "expected_citation_pages": [26],
+          "expected_citation_text_contains": ["gpt-5.4-thinking: 73.33%"]
+        },
+        {
+          "question": "Under the Preparedness Framework, which domain does the card say GPT-5.4 Thinking does not have a plausible chance of reaching a High threshold in?",
+          "expected_supported": true,
+          "expected_answer_contains": ["ai self-improvement"],
+          "expected_citation_pages": [17],
+          "expected_citation_text_contains": ["does not have a plausible chance of reaching a High threshold"]
+        },
+        {
+          "question": "What does the card say about releasing GPT-5.4 Thinking weights under Apache 2.0?",
+          "expected_supported": false,
+          "expected_citation_pages": []
+        }
+      ]
+    }
+  ]
+}

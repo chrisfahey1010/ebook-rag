@@ -1,0 +1,53 @@
+{
+  "name": "qwen3-technical-report-eval",
+  "documents": [
+    {
+      "filename": "qwen3_technical_report.pdf",
+      "source_pdf": "benchmarks/local/qwen3_technical_report.pdf",
+      "questions": [
+        {
+          "question": "How many languages and dialects does Qwen3 support?",
+          "expected_supported": true,
+          "expected_answer_contains": ["119 languages"],
+          "expected_citation_pages": [2],
+          "expected_citation_text_contains": ["36 trillion tokens covering up to 119 languages and dialects"]
+        },
+        {
+          "question": "What are the total and activated parameter counts of the flagship Qwen3-235B-A22B model?",
+          "expected_supported": true,
+          "expected_answer_contains": ["235b", "22b"],
+          "expected_citation_pages": [3],
+          "expected_citation_text_contains": ["235B parameters with 22B activated ones"]
+        },
+        {
+          "question": "What mechanism lets users allocate computational resources adaptively during inference?",
+          "expected_supported": true,
+          "expected_answer_contains": ["thinking budget"],
+          "expected_citation_pages": [1],
+          "expected_citation_text_contains": ["thinking budget mechanism"]
+        },
+        {
+          "question": "Which two operating modes does Qwen3 integrate into a single model?",
+          "expected_supported": true,
+          "expected_answer_contains": ["thinking mode", "non-thinking mode"],
+          "expected_citation_pages": [2],
+          "expected_citation_text_contains": ["thinking mode and non-thinking mode"],
+          "citation_text_match_mode": "all"
+        },
+        {
+          "question": "How many languages does Qwen3 cover, and under what license are the models publicly accessible?",
+          "expected_supported": true,
+          "expected_answer_contains": ["119 languages", "apache 2.0"],
+          "expected_citation_pages": [1],
+          "expected_citation_text_contains": ["Apache 2.0", "119 languages and dialects"],
+          "citation_text_match_mode": "all"
+        },
+        {
+          "question": "What does the report say about Qwen3 supporting 256 languages?",
+          "expected_supported": false,
+          "expected_citation_pages": []
+        }
+      ]
+    }
+  ]
+}
