@@ -1072,6 +1072,132 @@ def test_extractive_provider_handles_flattened_free_cash_flow_rows() -> None:
     assert "11,194" in answer.citations[0].text
 
 
+def test_extractive_provider_prefers_exact_metric_row_over_narrative_summary() -> None:
+    provider = ExtractiveAnswerProvider()
+    narrative_context = RetrievedChunkContext(
+        chunk_id="chunk-2",
+        document_id="doc-1",
+        document_title="Earnings",
+        document_filename="earnings.pdf",
+        chunk_index=2,
+        page_start=2,
+        page_end=2,
+        text=(
+            "Net income increased to $77.7 billion in 2025, or $7.17 per diluted share, "
+            "compared with $59.2 billion, or $5.53 per diluted share, in 2024. "
+            "Operating cash flow increased 20% to $139.5 billion for the trailing twelve "
+            "months, compared with $115.9 billion for the trailing twelve months ended "
+            "December 31, 2024. Free cash flow decreased to $11.2 billion for the trailing "
+            "twelve months, driven primarily by a year-over-year increase of $50.7 billion "
+            "in purchases of property and equipment, net of proceeds from sales and incentives."
+        ),
+        token_estimate=84,
+        score=0.95,
+        rerank_score=0.95,
+    )
+    table_context = RetrievedChunkContext(
+        chunk_id="chunk-11",
+        document_id="doc-1",
+        document_title="Earnings",
+        document_filename="earnings.pdf",
+        chunk_index=11,
+        page_start=11,
+        page_end=11,
+        text=(
+            "Q3 2024\n"
+            "Q4 2024\n"
+            "Q1 2025\n"
+            "Q2 2025\n"
+            "Q3 2025\n"
+            "Q4 2025\n"
+            "Y/Y %\n"
+            "Change\n"
+            "Purchases of property and equipment, net of proceeds from sales and incentives -- TTM "
+            "$ 64,959 $ 77,658 $ 87,978 $ 102,953 $ 115,903 $ 128,320 65 %\n"
+            "Free cash flow -- TTM (1) $ 47,747 $ 38,219 $ 25,925 $ 18,184 $ 14,788 $ 11,194 (71) %\n"
+            "Common shares and stock-based awards outstanding"
+        ),
+        token_estimate=54,
+        score=0.82,
+        rerank_score=0.82,
+    )
+
+    answer = provider.generate_answer(
+        question="What was trailing-twelve-month free cash flow in Q4 2025?",
+        contexts=[narrative_context, table_context],
+    )
+
+    assert answer.supported is True
+    assert "11,194" in answer.answer_text
+    assert "11.2 billion" not in answer.answer_text
+    assert answer.citations
+    assert answer.citations[0].page_start == 11
+    assert "free cash flow" in answer.citations[0].text.lower()
+    assert "q4 2025" in answer.citations[0].text.lower()
+
+
+def test_extractive_provider_keeps_narrative_explanation_for_why_question() -> None:
+    provider = ExtractiveAnswerProvider()
+    narrative_context = RetrievedChunkContext(
+        chunk_id="chunk-2",
+        document_id="doc-1",
+        document_title="Earnings",
+        document_filename="earnings.pdf",
+        chunk_index=2,
+        page_start=2,
+        page_end=2,
+        text=(
+            "Net income increased to $77.7 billion in 2025, or $7.17 per diluted share, "
+            "compared with $59.2 billion, or $5.53 per diluted share, in 2024. "
+            "Operating cash flow increased 20% to $139.5 billion for the trailing twelve "
+            "months, compared with $115.9 billion for the trailing twelve months ended "
+            "December 31, 2024. Free cash flow decreased to $11.2 billion for the trailing "
+            "twelve months, driven primarily by a year-over-year increase of $50.7 billion "
+            "in purchases of property and equipment, net of proceeds from sales and incentives."
+        ),
+        token_estimate=84,
+        score=0.95,
+        rerank_score=0.95,
+    )
+    table_context = RetrievedChunkContext(
+        chunk_id="chunk-11",
+        document_id="doc-1",
+        document_title="Earnings",
+        document_filename="earnings.pdf",
+        chunk_index=11,
+        page_start=11,
+        page_end=11,
+        text=(
+            "Q3 2024\n"
+            "Q4 2024\n"
+            "Q1 2025\n"
+            "Q2 2025\n"
+            "Q3 2025\n"
+            "Q4 2025\n"
+            "Y/Y %\n"
+            "Change\n"
+            "Purchases of property and equipment, net of proceeds from sales and incentives -- TTM "
+            "$ 64,959 $ 77,658 $ 87,978 $ 102,953 $ 115,903 $ 128,320 65 %\n"
+            "Free cash flow -- TTM (1) $ 47,747 $ 38,219 $ 25,925 $ 18,184 $ 14,788 $ 11,194 (71) %\n"
+            "Common shares and stock-based awards outstanding"
+        ),
+        token_estimate=54,
+        score=0.82,
+        rerank_score=0.82,
+    )
+
+    answer = provider.generate_answer(
+        question="Why did free cash flow decrease for the trailing twelve months ended December 31, 2025?",
+        contexts=[narrative_context, table_context],
+    )
+
+    assert answer.supported is True
+    assert "driven primarily" in answer.answer_text.lower()
+    assert "purchases of property and equipment" in answer.answer_text.lower()
+    assert answer.citations
+    assert answer.citations[0].page_start == 2
+
+
 def test_extractive_provider_prefers_requested_metric_over_results_headline() -> None:
     provider = ExtractiveAnswerProvider()
     context = RetrievedChunkContext(

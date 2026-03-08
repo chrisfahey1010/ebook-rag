@@ -1014,6 +1014,7 @@ def _rank_evidence_contexts(
                     terms=context_terms,
                 ),
             ) * 0.55
+        score += _exact_metric_lookup_bonus(question_text, evidence_context.text) * 0.4
         score += anchor_overlap * 0.22
         score += constraint_overlap * 0.26
         score += min(0.18, question_overlap * 0.04)
@@ -1415,12 +1416,15 @@ def _select_best_candidate_for_facet(
     prefer_alias = "nickname" in facet.text.lower() and any(
         has_nickname_alias(candidate.sentence, nickname_subject_terms) for candidate in candidates
     )
-    scored_candidates: list[tuple[tuple[float, float, float, float], SentenceCandidate]] = []
+    scored_candidates: list[
+        tuple[tuple[float, float, float, float, float, float, float, float], SentenceCandidate]
+    ] = []
     for candidate in candidates:
         if prefer_explicit_date and not has_explicit_date(candidate.sentence):
             continue
         if prefer_alias and not has_nickname_alias(candidate.sentence, nickname_subject_terms):
             continue
+        exact_metric_bonus = _exact_metric_lookup_bonus(facet.text, candidate.sentence)
         facet_score = _score_sentence_against_text(
             prompt_text=facet.text,
             prompt_terms=facet.terms,
@@ -1450,6 +1454,7 @@ def _select_best_candidate_for_facet(
         scored_candidates.append(
             (
                 (
+                    exact_metric_bonus,
                     float(constraint_matches),
                     float(anchor_matches),
                     facet_score,
@@ -1474,6 +1479,7 @@ def _select_best_candidate_for_facet(
             -item[0][4],
             -item[0][5],
             -item[0][6],
+            -item[0][7],
             item[1].context.page_start,
             item[1].context.chunk_index,
         )
@@ -1514,6 +1520,7 @@ def _score_sentence_against_text(
         + _answer_type_bonus(prompt_text, candidate.sentence)
         + _structured_numeric_bonus(prompt_text, candidate.sentence)
         + _financial_metric_alignment_bonus(prompt_text, candidate.sentence)
+        + _exact_metric_lookup_bonus(prompt_text, candidate.sentence)
         + _temporal_alignment_bonus(prompt_text, candidate.sentence)
         + max(candidate.context.score, 0.0) * 0.15
         - metadata_noise_score(candidate.sentence) * 0.25
@@ -1762,6 +1769,70 @@ def _question_has_numeric_intent(question: str) -> bool:
 def _question_metric_phrases(question: str) -> set[str]:
     lowered = question.lower()
     return {phrase for phrase in _FINANCIAL_METRIC_PHRASES if phrase in lowered}
+
+
+def _question_seeks_exact_metric_value(question: str) -> bool:
+    lowered = question.lower().strip()
+    if not _question_metric_phrases(question):
+        return False
+    return lowered.startswith(("what was", "what were", "how much", "how many"))
+
+
+def _mentions_trailing_twelve_months(text: str) -> bool:
+    lowered = text.lower()
+    return "trailing twelve months" in lowered or "ttm" in lowered
+
+
+def _financial_metrics_in_text(text: str) -> set[str]:
+    lowered = text.lower()
+    return {phrase for phrase in _FINANCIAL_METRIC_PHRASES if phrase in lowered}
+
+
+def _looks_like_exact_metric_value_span(text: str) -> bool:
+    token_count = len(_tokenize(text))
+    if token_count == 0 or token_count > 16:
+        return False
+    if not re.search(r"\d", text):
+        return False
+    financial_metrics = _financial_metrics_in_text(text)
+    if len(financial_metrics) != 1:
+        return False
+    return bool(_quarter_year_pairs(text) or _mentions_trailing_twelve_months(text))
+
+
+def _exact_metric_lookup_bonus(question: str, text: str) -> float:
+    if not _question_seeks_exact_metric_value(question):
+        return 0.0
+
+    question_metrics = _question_metric_phrases(question)
+    if not question_metrics:
+        return 0.0
+
+    lowered_text = text.lower()
+    matched_metrics = {phrase for phrase in question_metrics if phrase in lowered_text}
+    if not matched_metrics:
+        return 0.0
+
+    bonus = 0.0
+    question_pairs = _quarter_year_pairs(question)
+    text_pairs = _quarter_year_pairs(text)
+    if question_pairs and question_pairs.issubset(text_pairs):
+        bonus += 0.38
+
+    if _mentions_trailing_twelve_months(question) and _mentions_trailing_twelve_months(text):
+        bonus += 0.1
+
+    if _looks_like_exact_metric_value_span(text):
+        bonus += 0.16
+
+    if re.search(r"\b\d{1,3}(?:,\d{3})+\b", text):
+        bonus += 0.08
+
+    conflicting_metrics = _financial_metrics_in_text(text) - question_metrics
+    if conflicting_metrics:
+        bonus -= min(0.24, len(conflicting_metrics) * 0.12)
+
+    return bonus
 
 
 def _financial_metric_alignment_bonus(question: str, text: str) -> float:
