@@ -4,6 +4,7 @@ import argparse
 import json
 import math
 import os
+import re
 import sys
 import tempfile
 from datetime import UTC, datetime
@@ -36,6 +37,28 @@ LATENCY_METRICS = (
     "average_latency_ms",
     "latency_p50_ms",
     "latency_p95_ms",
+)
+
+EXCERPT_WHITESPACE_RE = re.compile(r"\s+")
+EXCERPT_SEPARATOR_DASH_RE = re.compile(r"\s-+\s")
+EXCERPT_CURRENCY_RE = re.compile(r"\$\s+")
+EXCERPT_PERCENT_RE = re.compile(r"\s+%")
+EXCERPT_OPEN_PAREN_RE = re.compile(r"\(\s+")
+EXCERPT_CLOSE_PAREN_RE = re.compile(r"\s+\)")
+EXCERPT_TRANSLATION_TABLE = str.maketrans(
+    {
+        "\u2010": "-",
+        "\u2011": "-",
+        "\u2012": "-",
+        "\u2013": "-",
+        "\u2014": "-",
+        "\u2015": "-",
+        "\u2212": "-",
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+    }
 )
 
 
@@ -222,17 +245,28 @@ def text_expectation_hit(
     if not expected_texts:
         return True
 
-    normalized_actual_texts = [text.casefold() for text in actual_texts if text]
+    normalized_actual_texts = [_normalize_excerpt_text(text) for text in actual_texts if text]
     if not normalized_actual_texts:
         return False
 
     matches = [
-        any(expected_text.casefold() in actual_text for actual_text in normalized_actual_texts)
+        any(_normalize_excerpt_text(expected_text) in actual_text for actual_text in normalized_actual_texts)
         for expected_text in expected_texts
     ]
     if match_mode == "all":
         return all(matches)
     return any(matches)
+
+
+def _normalize_excerpt_text(text: str) -> str:
+    normalized = text.translate(EXCERPT_TRANSLATION_TABLE)
+    normalized = EXCERPT_WHITESPACE_RE.sub(" ", normalized).strip().casefold()
+    normalized = EXCERPT_SEPARATOR_DASH_RE.sub(" - ", normalized)
+    normalized = EXCERPT_CURRENCY_RE.sub("$", normalized)
+    normalized = EXCERPT_PERCENT_RE.sub("%", normalized)
+    normalized = EXCERPT_OPEN_PAREN_RE.sub("(", normalized)
+    normalized = EXCERPT_CLOSE_PAREN_RE.sub(")", normalized)
+    return normalized
 
 
 def percentile(values: list[float], percentile_rank: float) -> float:

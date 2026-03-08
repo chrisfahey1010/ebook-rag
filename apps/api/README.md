@@ -60,6 +60,8 @@ Questions can also declare:
 - `citation_text_match_mode` (`any` or `all`) to control how multiple excerpt expectations are scored
 - `regression_tier` (`gating` or `exploratory`) so harder long-form citation checks can be tracked without blocking every merge
 
+Citation excerpt matching is normalization-aware for benchmark purposes: whitespace runs, separator-dash variants, smart quotes, and common currency/percent spacing differences are collapsed before excerpt expectations are compared.
+
 `--fail-on-regression` only gates on the regression lane. Exploratory excerpt checks still appear in the report, but they do not trigger a non-zero exit code on their own.
 
 To run the focused page-local citation benchmark:

@@ -24,6 +24,7 @@ from ebook_rag_api.services.text import (
     has_temporal_marker,
     longest_matching_query_run,
     metadata_noise_score,
+    normalize_query_text,
     normalized_token_sequence,
     query_run_bonus,
     tokenize_terms,
@@ -693,6 +694,10 @@ _FINANCIAL_METRIC_PHRASES = (
     "aws segment sales",
 )
 _QUARTER_YEAR_RE = re.compile(r"\bq[1-4]\s+\d{4}\b", re.IGNORECASE)
+_EVIDENCE_CURRENCY_RE = re.compile(r"\$\s+")
+_EVIDENCE_PERCENT_RE = re.compile(r"\s+%")
+_EVIDENCE_OPEN_PAREN_RE = re.compile(r"\(\s+")
+_EVIDENCE_CLOSE_PAREN_RE = re.compile(r"\s+\)")
 
 
 def _find_structured_period_headers(lines: list[str]) -> tuple[list[str], int]:
@@ -1074,7 +1079,7 @@ def _build_evidence_excerpt(
         question_text=question_text,
         span=best_span,
     )
-    return replace(context, text=trimmed_span)
+    return replace(context, text=_normalize_evidence_excerpt_text(trimmed_span))
 
 
 def _build_candidate_spans(sentences: list[str]) -> list[str]:
@@ -1163,6 +1168,15 @@ def _trim_span_to_support(*, answer_text: str, question_text: str, span: str) ->
         if previous_overlap > 0 and len(_tokenize(previous_clause)) <= 3:
             return f"{previous_clause}, {best_clause}"
     return best_clause
+
+
+def _normalize_evidence_excerpt_text(text: str) -> str:
+    normalized = normalize_query_text(text)
+    normalized = _EVIDENCE_CURRENCY_RE.sub("$ ", normalized)
+    normalized = _EVIDENCE_PERCENT_RE.sub("%", normalized)
+    normalized = _EVIDENCE_OPEN_PAREN_RE.sub("(", normalized)
+    normalized = _EVIDENCE_CLOSE_PAREN_RE.sub(")", normalized)
+    return normalized.strip(" ,;:")
 
 
 def _rank_contexts_for_selection(

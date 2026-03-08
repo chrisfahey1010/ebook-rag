@@ -227,6 +227,19 @@ def test_render_markdown_report_includes_comparison_and_failures() -> None:
     assert "answer=False" in report
 
 
+def test_text_expectation_hit_normalizes_excerpt_spacing_and_punctuation() -> None:
+    run_eval = load_run_eval_module()
+
+    assert (
+        run_eval.text_expectation_hit(
+            expected_texts=['Free cash flow -- TTM (1)', '$  11,194', 'Amazon’s'],
+            actual_texts=['Free cash flow - TTM (1) Q4 2025 $ 11,194', "Amazon's 2026 outlook"],
+            match_mode="all",
+        )
+        is True
+    )
+
+
 def test_expand_page_span_includes_all_pages_in_a_chunk_range() -> None:
     run_eval = load_run_eval_module()
 

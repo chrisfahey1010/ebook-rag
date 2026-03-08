@@ -1067,9 +1067,7 @@ def test_extractive_provider_handles_flattened_free_cash_flow_rows() -> None:
     assert "11,194" in answer.answer_text
     assert "128,320" not in answer.answer_text
     assert answer.citations
-    assert "free cash flow" in answer.citations[0].text.lower()
-    assert "q4 2025" in answer.citations[0].text.lower()
-    assert "11,194" in answer.citations[0].text
+    assert answer.citations[0].text == "Free cash flow -- TTM (1) Q4 2025 $ 11,194"
 
 
 def test_extractive_provider_prefers_exact_metric_row_over_narrative_summary() -> None:

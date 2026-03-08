@@ -75,8 +75,7 @@
           "expected_answer_contains": ["11,194"],
           "expected_citation_pages": [11],
           "expected_citation_text_contains": ["Free cash flow -- TTM (1)", "$  11,194"],
-          "citation_text_match_mode": "all",
-          "regression_tier": "exploratory"
+          "citation_text_match_mode": "all"
         },
         {
           "question": "How many employees did Amazon report in Q4 2025?",
@@ -87,8 +86,7 @@
             "Employees (full-time and part-time; excludes contractors & temporary personnel)",
             "1,576,000"
           ],
-          "citation_text_match_mode": "all",
-          "regression_tier": "exploratory"
+          "citation_text_match_mode": "all"
         }
       ]
     }
