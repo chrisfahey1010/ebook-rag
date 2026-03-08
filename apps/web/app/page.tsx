@@ -284,6 +284,109 @@ async function fetchRetrieval(
   return (await response.json()) as RetrievalResponse;
 }
 
+async function streamQaAnswer(
+  question: string,
+  documentId: string,
+  onDelta: (delta: string) => void,
+): Promise<QAResponse> {
+  const response = await fetch(`${apiBaseUrl}/api/qa/ask-stream`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      question,
+      document_id: documentId,
+      top_k: 5,
+      include_trace: true,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+
+  if (!response.body) {
+    throw new Error("Streaming response body was unavailable.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalPayload: QAResponse | null = null;
+
+  function processEventBlock(block: string) {
+    const lines = block
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (lines.length === 0) {
+      return;
+    }
+
+    let eventName = "message";
+    const dataLines: string[] = [];
+    for (const line of lines) {
+      if (line.startsWith("event:")) {
+        eventName = line.slice(6).trim();
+      } else if (line.startsWith("data:")) {
+        dataLines.push(line.slice(5).trim());
+      }
+    }
+
+    const data = dataLines.join("\n");
+    if (!data) {
+      return;
+    }
+
+    const payload = JSON.parse(data) as
+      | { delta?: string; detail?: string }
+      | QAResponse;
+
+    if (eventName === "answer_delta") {
+      onDelta((payload as { delta?: string }).delta ?? "");
+      return;
+    }
+    if (eventName === "error") {
+      throw new Error(
+        (payload as { detail?: string }).detail ?? "Streaming request failed.",
+      );
+    }
+    if (eventName === "complete") {
+      finalPayload = payload as QAResponse;
+    }
+  }
+
+  while (true) {
+    const { done, value } = await reader.read();
+    buffer += decoder
+      .decode(value ?? new Uint8Array(), { stream: !done })
+      .replace(/\r\n/g, "\n");
+
+    let boundaryIndex = buffer.indexOf("\n\n");
+    while (boundaryIndex !== -1) {
+      const block = buffer.slice(0, boundaryIndex);
+      buffer = buffer.slice(boundaryIndex + 2);
+      processEventBlock(block);
+      boundaryIndex = buffer.indexOf("\n\n");
+    }
+
+    if (done) {
+      break;
+    }
+  }
+
+  if (buffer.trim()) {
+    processEventBlock(buffer);
+  }
+
+  if (!finalPayload) {
+    throw new Error("Streaming response ended before a completion event.");
+  }
+
+  return finalPayload;
+}
+
 export default function Home() {
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   const [selectedDocumentId, setSelectedDocumentId] = useState<string>("");
@@ -575,23 +678,39 @@ export default function Home() {
 
     startAnswerTransition(async () => {
       try {
-        const qaResponse = await fetch(`${apiBaseUrl}/api/qa/ask`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            question: trimmedQuestion,
-            document_id: selectedDocumentId,
-            top_k: 5,
-            include_trace: true,
-          }),
+        setQaTrace(null);
+        setSelectedCitationChunkId(null);
+        setAnswer({
+          normalized_question: trimmedQuestion,
+          answer: "",
+          supported: false,
+          citations: [],
+          retrieved_chunk_count: 0,
+          trace: null,
         });
 
-        if (!qaResponse.ok) {
-          throw new Error(await parseApiError(qaResponse));
-        }
-        const qaPayload = (await qaResponse.json()) as QAResponse;
+        const qaPayload = await streamQaAnswer(
+          trimmedQuestion,
+          selectedDocumentId,
+          (delta) => {
+            setAnswer((current) => {
+              if (!current) {
+                return {
+                  normalized_question: trimmedQuestion,
+                  answer: delta,
+                  supported: false,
+                  citations: [],
+                  retrieved_chunk_count: 0,
+                  trace: null,
+                };
+              }
+              return {
+                ...current,
+                answer: `${current.answer}${delta}`,
+              };
+            });
+          },
+        );
 
         setAnswer(qaPayload);
         setQaTrace(qaPayload.trace);
@@ -908,7 +1027,7 @@ export default function Home() {
                   </h2>
                   <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--muted)]">
                     Ask a focused question against one indexed PDF. Answers come
-                    from `/api/qa/ask` and expose the supporting chunk text.
+                    from `/api/qa/ask-stream` and expose the supporting chunk text.
                   </p>
                 </div>
                 {selectedDocument ? (
@@ -1059,7 +1178,7 @@ export default function Home() {
                 ) : (
                   <div className="mt-5 space-y-4">
                     <p className="rounded-[1.25rem] bg-white/75 px-5 py-5 text-base leading-8 shadow-[0_14px_34px_rgba(63,42,29,0.05)]">
-                      {answer.answer}
+                      {answer.answer || (isAnswering ? "Streaming answer..." : "")}
                     </p>
                     <div className="grid gap-4 md:grid-cols-2">
                       <div className="rounded-[1.1rem] border border-[var(--border)] bg-white/60 px-4 py-4">

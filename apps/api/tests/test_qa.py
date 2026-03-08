@@ -1,3 +1,5 @@
+import json
+
 from fastapi.testclient import TestClient
 
 from ebook_rag_api.services.qa import (
@@ -6,6 +8,24 @@ from ebook_rag_api.services.qa import (
     assemble_answer_contexts,
     select_evidence_citations,
 )
+
+
+def _parse_sse_events(raw_body: str) -> list[tuple[str, dict]]:
+    events: list[tuple[str, dict]] = []
+    for block in raw_body.split("\n\n"):
+        if not block.strip():
+            continue
+        event_name = "message"
+        data_lines: list[str] = []
+        for line in block.splitlines():
+            if line.startswith("event:"):
+                event_name = line.split(":", 1)[1].strip()
+            elif line.startswith("data:"):
+                data_lines.append(line.split(":", 1)[1].strip())
+        if not data_lines:
+            continue
+        events.append((event_name, json.loads("\n".join(data_lines))))
+    return events
 
 
 def test_qa_answer_returns_grounded_answer_with_citations(
@@ -135,6 +155,99 @@ def test_qa_answer_can_include_trace_payload(
     assert payload["trace"]["selected_contexts"][0]["chunk_id"] == payload["citations"][0]["chunk_id"]
     assert payload["trace"]["cited_contexts"][0]["chunk_id"] == payload["citations"][0]["chunk_id"]
     assert payload["trace"]["timings"]["total_ms"] >= 0
+
+
+def test_qa_answer_stream_returns_sse_events_and_final_payload(
+    client: TestClient, pdf_factory
+) -> None:
+    upload_response = client.post(
+        "/api/documents/upload",
+        files={
+            "file": (
+                "operations.pdf",
+                pdf_factory(
+                    [
+                        "Launch checklist\n\nInspect the heat shield before ignition.",
+                        "Landing checklist\n\nDeploy the parachute after atmospheric entry.",
+                    ]
+                ),
+                "application/pdf",
+            )
+        },
+    )
+
+    assert upload_response.status_code == 201
+    document_id = upload_response.json()["document"]["id"]
+
+    response = client.post(
+        "/api/qa/ask-stream",
+        json={
+            "question": "What should happen before ignition?",
+            "document_id": document_id,
+            "top_k": 4,
+            "include_trace": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    events = _parse_sse_events(response.text)
+    event_names = [event_name for event_name, _ in events]
+    assert event_names[0] == "start"
+    assert "answer_delta" in event_names
+    assert event_names[-1] == "complete"
+
+    complete_payload = events[-1][1]
+    assert complete_payload["supported"] is True
+    assert "inspect the heat shield before ignition" in complete_payload["answer"].lower()
+    assert complete_payload["citations"]
+    assert complete_payload["trace"] is not None
+    assert complete_payload["trace"]["answer_provider"] == "ExtractiveAnswerProvider"
+    assert complete_payload["trace"]["cited_contexts"][0]["chunk_id"] == complete_payload["citations"][0]["chunk_id"]
+
+    streamed_answer = "".join(
+        payload.get("delta", "")
+        for event_name, payload in events
+        if event_name == "answer_delta"
+    )
+    assert streamed_answer == complete_payload["answer"]
+
+
+def test_qa_answer_stream_returns_unsupported_completion_payload(
+    client: TestClient, pdf_factory
+) -> None:
+    upload_response = client.post(
+        "/api/documents/upload",
+        files={
+            "file": (
+                "astronomy.pdf",
+                pdf_factory(
+                    [
+                        "Stars\n\nStars emit light because of nuclear fusion in their cores.",
+                    ]
+                ),
+                "application/pdf",
+            )
+        },
+    )
+
+    assert upload_response.status_code == 201
+    document_id = upload_response.json()["document"]["id"]
+
+    response = client.post(
+        "/api/qa/ask-stream",
+        json={
+            "question": "What does the book say about whale migration routes?",
+            "document_id": document_id,
+        },
+    )
+
+    assert response.status_code == 200
+    events = _parse_sse_events(response.text)
+    complete_payload = events[-1][1]
+    assert complete_payload["supported"] is False
+    assert "could not find enough support" in complete_payload["answer"].lower()
+    assert complete_payload["citations"] == []
 
 
 def test_qa_citations_follow_the_answer_evidence_instead_of_all_selected_context(

@@ -1,8 +1,11 @@
+import json
+
 from ebook_rag_api.services.qa import (
     OpenAICompatibleAnswerProvider,
     RetrievedChunkContext,
     assemble_answer_contexts,
     build_qa_prompt,
+    extract_chat_completion_delta,
     extract_chat_completion_text,
 )
 
@@ -22,6 +25,7 @@ class _FakeClient:
     def __init__(self, payload: dict) -> None:
         self.payload = payload
         self.calls: list[dict] = []
+        self.stream_calls: list[dict] = []
 
     def __enter__(self):
         return self
@@ -32,6 +36,28 @@ class _FakeClient:
     def post(self, url: str, json: dict, headers: dict) -> _FakeResponse:
         self.calls.append({"url": url, "json": json, "headers": headers})
         return _FakeResponse(self.payload)
+
+    def stream(self, method: str, url: str, json: dict, headers: dict):
+        self.stream_calls.append(
+            {"method": method, "url": url, "json": json, "headers": headers}
+        )
+        payload = self.payload
+
+        class _StreamResponse:
+            def __enter__(self_inner):
+                return self_inner
+
+            def __exit__(self_inner, exc_type, exc, tb) -> None:
+                return None
+
+            def raise_for_status(self_inner) -> None:
+                return None
+
+            def iter_lines(self_inner):
+                for line in payload.get("lines", []):
+                    yield line
+
+        return _StreamResponse()
 
 
 def test_build_qa_prompt_includes_question_and_page_metadata() -> None:
@@ -62,6 +88,32 @@ def test_extract_chat_completion_text_handles_string_and_list_content() -> None:
     assert (
         extract_chat_completion_text(
             {"choices": [{"message": {"content": "Answer text"}}]}
+        )
+        == "Answer text"
+    )
+
+
+def test_extract_chat_completion_delta_handles_string_and_list_content() -> None:
+    assert (
+        extract_chat_completion_delta(
+            {"choices": [{"delta": {"content": "Answer text"}}]}
+        )
+        == "Answer text"
+    )
+    assert (
+        extract_chat_completion_delta(
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "content": [
+                                {"type": "text", "text": "Answer"},
+                                {"type": "text", "text": " text"},
+                            ]
+                        }
+                    }
+                ]
+            }
         )
         == "Answer text"
     )
@@ -164,6 +216,55 @@ def test_openai_compatible_provider_maps_insufficient_support(monkeypatch) -> No
 
     assert answer.supported is False
     assert answer.citations == []
+
+
+def test_openai_compatible_provider_streams_answer_deltas(monkeypatch) -> None:
+    fake_client = _FakeClient(
+        {
+            "lines": [
+                f"data: {json.dumps({'choices': [{'delta': {'content': 'Inspect the fuel'}}]})}",
+                f"data: {json.dumps({'choices': [{'delta': {'content': ' lines before launch.'}}]})}",
+                "data: [DONE]",
+            ]
+        }
+    )
+
+    monkeypatch.setattr(
+        "ebook_rag_api.services.qa.httpx.Client",
+        lambda timeout: fake_client,
+    )
+
+    provider = OpenAICompatibleAnswerProvider(
+        base_url="http://localhost:11434/v1",
+        api_key="secret",
+        model="llama3.2",
+        timeout_seconds=5.0,
+        temperature=0.0,
+        max_tokens=200,
+    )
+    context = RetrievedChunkContext(
+        chunk_id="chunk-1",
+        document_id="doc-1",
+        document_title="Launch Manual",
+        document_filename="launch.pdf",
+        chunk_index=0,
+        page_start=3,
+        page_end=3,
+        text="Inspect the fuel lines before launch.",
+        score=0.91,
+    )
+
+    deltas = [
+        chunk.delta
+        for chunk in provider.stream_answer(
+            question="What should happen before launch?",
+            contexts=[context],
+        )
+    ]
+
+    assert deltas == ["Inspect the fuel", " lines before launch."]
+    assert fake_client.stream_calls[0]["json"]["stream"] is True
+    assert fake_client.stream_calls[0]["url"] == "http://localhost:11434/v1/chat/completions"
 
 
 def test_assemble_answer_contexts_deduplicates_near_identical_chunks() -> None:

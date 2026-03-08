@@ -110,6 +110,7 @@ Current implementation includes:
 - focused retrieval scoring that rewards full anchor/constraint coverage for low-frequency entity and date questions
 - pluggable reranker providers with token-overlap fallback, local cross-encoder support, and an OpenAI-compatible adapter
 - grounded question answering with citations
+- streamed grounded answers in the browser via server-sent events
 - composite-question answer synthesis that requires support for each requested facet
 - extractive answer selection that can use adjacent-sentence spans and rejects weakly supported semantic neighbors more aggressively
 - extractive answer selection that can bridge abbreviated/split sentences like `Hunter S. Thompson` and score up to three-sentence evidence spans
@@ -150,6 +151,7 @@ Current limitations:
 - `POST /api/ingestion/{document_id}/reprocess`
 - `POST /api/retrieval/search`
 - `POST /api/qa/ask`
+- `POST /api/qa/ask-stream`
 - `POST /api/debug/retrieve`
 - `GET /api/debug/documents/{document_id}/chunks`
 - `POST /api/debug/rerank`
@@ -164,7 +166,7 @@ QA builds on retrieval and returns a grounded answer plus structured citations. 
 
 Provider selection is environment-driven. Embeddings, reranking, and answer generation can now be configured independently for local-only, hosted, or mixed setups.
 
-`POST /api/qa/ask` now accepts `include_trace=true` to expose the selected context window, cited evidence, chunk provenance, prompt snapshot, provider name, and timing breakdown used for answer generation. The web app uses that trace plus citation provenance to show a selected-citation inspector with answer-sentence matching, page-local normalized-text offsets, paragraph spans, and score breakdowns for source verification.
+`POST /api/qa/ask` now accepts `include_trace=true` to expose the selected context window, cited evidence, chunk provenance, prompt snapshot, provider name, and timing breakdown used for answer generation. `POST /api/qa/ask-stream` exposes the same final answer payload as a terminal server-sent event after streaming incremental answer text chunks, so the web app can render the answer progressively and then attach citations and trace metadata when generation finishes. The web app uses that trace plus citation provenance to show a selected-citation inspector with answer-sentence matching, page-local normalized-text offsets, paragraph spans, and score breakdowns for source verification.
 
 Debug retrieval exposes the ranked candidate list directly so the frontend can show what the retriever selected before answer generation, including dense, lexical, hybrid, rerank, and final score breakdowns plus chunk provenance. Additional debug routes now expose persisted document chunks and standalone reranker scoring so chunking, retrieval, rerank, and page-local source spans can be inspected separately during tuning.
 

@@ -1,4 +1,6 @@
 import re
+import json
+from collections.abc import Iterator
 from dataclasses import dataclass
 from dataclasses import replace
 from functools import lru_cache
@@ -96,10 +98,32 @@ class QATrace:
     answer: GeneratedAnswer
 
 
+@dataclass(frozen=True)
+class AnswerStreamChunk:
+    delta: str
+
+
+@dataclass(frozen=True)
+class PreparedQARequest:
+    normalized_question: str
+    retrieved_chunks: list[RetrievedChunkContext]
+    selected_contexts: list[RetrievedChunkContext]
+    prompt_snapshot: str
+    answer_provider: "AnswerProvider"
+    normalization_ms: float
+    retrieval_ms: float
+    context_assembly_ms: float
+
+
 class AnswerProvider(Protocol):
     def generate_answer(
         self, question: str, contexts: list[RetrievedChunkContext]
     ) -> GeneratedAnswer:
+        ...
+
+    def stream_answer(
+        self, question: str, contexts: list[RetrievedChunkContext]
+    ) -> Iterator[AnswerStreamChunk]:
         ...
 
 
@@ -148,6 +172,13 @@ class ExtractiveAnswerProvider:
         )
 
         return GeneratedAnswer(answer_text=answer_text, supported=True, citations=citations)
+
+    def stream_answer(
+        self, question: str, contexts: list[RetrievedChunkContext]
+    ) -> Iterator[AnswerStreamChunk]:
+        answer = self.generate_answer(question=question, contexts=contexts)
+        for delta in _chunk_text_for_stream(answer.answer_text):
+            yield AnswerStreamChunk(delta=delta)
 
 
 class OpenAICompatibleAnswerProvider:
@@ -220,6 +251,58 @@ class OpenAICompatibleAnswerProvider:
             ),
         )
 
+    def stream_answer(
+        self, question: str, contexts: list[RetrievedChunkContext]
+    ) -> Iterator[AnswerStreamChunk]:
+        if not contexts:
+            for delta in _chunk_text_for_stream(_unsupported_answer().answer_text):
+                yield AnswerStreamChunk(delta=delta)
+            return
+
+        prompt = build_qa_prompt(question=question, contexts=contexts)
+        payload = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You answer questions using only the provided document context. "
+                        "If the evidence is insufficient, reply exactly with "
+                        "'INSUFFICIENT_SUPPORT'."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "stream": True,
+        }
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
+        try:
+            with httpx.Client(timeout=self.timeout_seconds) as client:
+                with client.stream(
+                    "POST",
+                    f"{self.base_url}/chat/completions",
+                    json=payload,
+                    headers=headers,
+                ) as response:
+                    response.raise_for_status()
+                    for line in response.iter_lines():
+                        if not line:
+                            continue
+                        data = _extract_sse_data_line(line)
+                        if not data or data == "[DONE]":
+                            continue
+                        delta = extract_chat_completion_delta(json.loads(data))
+                        if delta:
+                            yield AnswerStreamChunk(delta=delta)
+        except httpx.HTTPError:
+            for delta in _chunk_text_for_stream(_unsupported_answer().answer_text):
+                yield AnswerStreamChunk(delta=delta)
+
 
 @lru_cache(maxsize=1)
 def get_answer_provider() -> AnswerProvider:
@@ -259,6 +342,50 @@ def ask_question_with_trace(
     document_id: str | None = None,
     include_prompt_snapshot: bool = True,
 ) -> tuple[str, QATrace]:
+    prepared_request = prepare_qa_request(
+        session=session,
+        question=question,
+        top_k=top_k,
+        document_id=document_id,
+        include_prompt_snapshot=include_prompt_snapshot,
+    )
+    answer_started_at = perf_counter()
+    answer = prepared_request.answer_provider.generate_answer(
+        question=prepared_request.normalized_question,
+        contexts=prepared_request.selected_contexts,
+    )
+    answered_at = perf_counter()
+    trace = QATrace(
+        answer_provider=type(prepared_request.answer_provider).__name__,
+        retrieved_chunks=prepared_request.retrieved_chunks,
+        selected_contexts=prepared_request.selected_contexts,
+        cited_contexts=answer.citations,
+        prompt_snapshot=prepared_request.prompt_snapshot,
+        timings=QATimingBreakdown(
+            normalization_ms=prepared_request.normalization_ms,
+            retrieval_ms=prepared_request.retrieval_ms,
+            context_assembly_ms=prepared_request.context_assembly_ms,
+            answer_generation_ms=(answered_at - answer_started_at) * 1000,
+            total_ms=(
+                prepared_request.normalization_ms
+                + prepared_request.retrieval_ms
+                + prepared_request.context_assembly_ms
+                + (answered_at - answer_started_at) * 1000
+            ),
+        ),
+        answer=answer,
+    )
+    return prepared_request.normalized_question, trace
+
+
+def prepare_qa_request(
+    *,
+    session: Session,
+    question: str,
+    top_k: int,
+    document_id: str | None = None,
+    include_prompt_snapshot: bool = True,
+) -> PreparedQARequest:
     started_at = perf_counter()
     normalized_question = normalize_query(question)
     normalized_at = perf_counter()
@@ -270,7 +397,7 @@ def ask_question_with_trace(
     )
     retrieved_at = perf_counter()
     retrieved_chunks = [build_chunk_context(match) for match in matches]
-    expanded_contexts = _expand_contexts_with_page_siblings(
+    expanded_contexts = expand_contexts_with_page_siblings(
         session=session,
         question=normalized_question,
         contexts=retrieved_chunks,
@@ -293,28 +420,17 @@ def ask_question_with_trace(
         if include_prompt_snapshot
         else ""
     )
-    context_assembled_at = perf_counter()
-    answer = answer_provider.generate_answer(
-        question=normalized_question,
-        contexts=selected_contexts,
-    )
-    answered_at = perf_counter()
-    trace = QATrace(
-        answer_provider=type(answer_provider).__name__,
+    prepared_at = perf_counter()
+    return PreparedQARequest(
+        normalized_question=normalized_question,
         retrieved_chunks=retrieved_chunks,
         selected_contexts=selected_contexts,
-        cited_contexts=answer.citations,
         prompt_snapshot=prompt_snapshot,
-        timings=QATimingBreakdown(
-            normalization_ms=(normalized_at - started_at) * 1000,
-            retrieval_ms=(retrieved_at - normalized_at) * 1000,
-            context_assembly_ms=(context_assembled_at - retrieved_at) * 1000,
-            answer_generation_ms=(answered_at - context_assembled_at) * 1000,
-            total_ms=(answered_at - started_at) * 1000,
-        ),
-        answer=answer,
+        answer_provider=answer_provider,
+        normalization_ms=(normalized_at - started_at) * 1000,
+        retrieval_ms=(retrieved_at - normalized_at) * 1000,
+        context_assembly_ms=(prepared_at - retrieved_at) * 1000,
     )
-    return normalized_question, trace
 
 
 def build_chunk_context(match: ChunkSearchMatch) -> RetrievedChunkContext:
@@ -338,7 +454,7 @@ def build_chunk_context(match: ChunkSearchMatch) -> RetrievedChunkContext:
     )
 
 
-def _expand_contexts_with_page_siblings(
+def expand_contexts_with_page_siblings(
     *,
     session: Session,
     question: str,
@@ -922,6 +1038,53 @@ def extract_chat_completion_text(payload: dict) -> str:
         ]
         return "".join(text_segments)
     return ""
+
+
+def extract_chat_completion_delta(payload: dict) -> str:
+    choices = payload.get("choices", [])
+    if not choices:
+        return ""
+    first_choice = choices[0]
+    delta = first_choice.get("delta", {})
+    content = delta.get("content", "")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        text_segments = [
+            item.get("text", "")
+            for item in content
+            if isinstance(item, dict) and item.get("type") == "text"
+        ]
+        return "".join(text_segments)
+    return ""
+
+
+def _extract_sse_data_line(line: str) -> str:
+    normalized_line = line.strip()
+    if not normalized_line.startswith("data:"):
+        return ""
+    return normalized_line.removeprefix("data:").strip()
+
+
+def _chunk_text_for_stream(text: str) -> list[str]:
+    normalized_text = text.strip()
+    if not normalized_text:
+        return []
+    words = normalized_text.split()
+    chunks: list[str] = []
+    for index, word in enumerate(words):
+        suffix = "" if index == len(words) - 1 else " "
+        chunks.append(f"{word}{suffix}")
+    return chunks
+
+
+def is_unsupported_answer_text(text: str) -> bool:
+    normalized_text = " ".join(text.split()).strip()
+    if not normalized_text:
+        return True
+    if normalized_text == "INSUFFICIENT_SUPPORT":
+        return True
+    return normalized_text.casefold() == _unsupported_answer().answer_text.casefold()
 
 
 def select_evidence_citations(

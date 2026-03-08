@@ -219,7 +219,7 @@ Keep synchronous ingestion for the immediate next milestone unless upload latenc
 
 ### Milestone 4: Make grounded answering more robust
 
-The answer layer is working, but it is still conservative in simple ways rather than intentionally designed.
+This milestone is now in progress with the first streaming slice completed. The answer layer is more usable in the UI, but there are still a few quality and observability gaps before it should be considered finished.
 
 #### Goals
 
@@ -229,16 +229,20 @@ The answer layer is working, but it is still conservative in simple ways rather 
 
 #### Backend work
 
-- upgrade prompt construction:
-  - require evidence-only answers
-  - require citation-aware phrasing
-  - distinguish unsupported questions clearly
-- improve citation selection:
-  - cite only the chunks actually used
-  - prefer fewer, better citations over dumping the top 3
-- add support/confidence metadata derived from retrieval and answer behavior
-- add `POST /api/qa/ask-stream`
-- consider optional answer trace persistence for dev mode
+- completed:
+  - `POST /api/qa/ask-stream`
+  - streamed answer rendering in the web app
+  - terminal streamed payloads that include the same final answer, citations, and optional trace shape as `POST /api/qa/ask`
+- remaining:
+  - upgrade prompt construction:
+    - require evidence-only answers
+    - require citation-aware phrasing
+    - distinguish unsupported questions clearly
+  - improve citation selection:
+    - cite only the chunks actually used
+    - prefer fewer, better citations over dumping the top 3
+  - add support/confidence metadata derived from retrieval and answer behavior
+  - consider optional answer trace persistence for dev mode
 
 #### Local-model guidance
 
@@ -318,6 +322,7 @@ The current UI is functional. The next step is to make it more inspectable and m
 - support streamed answer rendering
 - improve citation browsing:
   - completed:
+    - streamed answer text now lands progressively before the final citations/trace payload
     - stronger page/chunk labels
     - clearer selected-citation state
     - easier comparison between answer text and source text
@@ -391,16 +396,16 @@ The project should be considered V1 complete when all of the following are true:
 
 The best next coding slice is now:
 
-1. calibrate benchmark baselines and result artifacts
-   - completed: saved stable JSON/Markdown baseline artifacts for the new manual/report/system-card harnesses under `apps/api/benchmarks/results/`
-   - completed: committed `apps/api/benchmarks/regression_suite.json` plus `scripts/run_regression_suite.py` so those suites rerun against saved baselines instead of ad hoc local memory
-2. tighten the remaining unstable long-form questions
-   - keep `infinite_jest` exploratory by default
-   - continue rewording or narrowing `hells_angels` and other long-form excerpt checks before promoting them into the gating lane
-3. close the remaining Milestone 1/7 documentation gap
+1. close the remaining Milestone 1/7 documentation gap
    - document recommended local embedding, reranker, and generation model combinations more explicitly
    - keep fully local, mixed, and hosted OpenAI-compatible setups easy to discover from the docs
+2. add model/provider visibility in the UI for debugging
+   - show which embedding, reranker, and answer providers are currently active
+   - keep the streamed-answer workspace inspectable instead of turning it into a chat-like black box
+3. tighten the remaining unstable long-form questions
+   - keep `infinite_jest` exploratory by default
+   - continue rewording or narrowing `hells_angels` and other long-form excerpt checks before promoting them into the gating lane
 
-The chunking decision itself is now benchmark-backed for the current fixture set, normalization now preserves heading blocks while collapsing soft-wrapped body lines more cleanly, chunk provenance now includes character-span offsets for page-local inspection, and the benchmark workflow now distinguishes page-level citation success from excerpt-level citation accuracy. On the March 8, 2026 run after the citation-assembly pass, the Amazon earnings benchmark reports `answer_match_rate=1.0`, `citation_hit_rate=1.0`, `citation_evidence_hit_rate=1.0`, `support_accuracy=1.0`, and `unsupported_precision=1.0`, while holding `gating_citation_evidence_hit_rate=1.0`. The page-11 free-cash-flow row, the page-13 employee-count row, and the narrative free-cash-flow explanation now all pass in the gating lane. The broader local fixture corpus is also now fully wired into dedicated benchmark definitions, and those definitions support inherited suite/document `regression_tier` defaults plus per-document failure summaries so the intended regression lane is visible in both config and reports.
+The chunking decision itself is now benchmark-backed for the current fixture set, normalization now preserves heading blocks while collapsing soft-wrapped body lines more cleanly, chunk provenance now includes character-span offsets for page-local inspection, the benchmark workflow now distinguishes page-level citation success from excerpt-level citation accuracy, and the QA workspace now streams answer text while preserving the same final citations and trace payloads as the synchronous route. On the March 8, 2026 run after the citation-assembly pass, the Amazon earnings benchmark reports `answer_match_rate=1.0`, `citation_hit_rate=1.0`, `citation_evidence_hit_rate=1.0`, `support_accuracy=1.0`, and `unsupported_precision=1.0`, while holding `gating_citation_evidence_hit_rate=1.0`. The page-11 free-cash-flow row, the page-13 employee-count row, and the narrative free-cash-flow explanation now all pass in the gating lane. The broader local fixture corpus is also now fully wired into dedicated benchmark definitions, and those definitions support inherited suite/document `regression_tier` defaults plus per-document failure summaries so the intended regression lane is visible in both config and reports.
 
-That benchmark-definition conversion and tier-default cleanup step is now complete. The immediate follow-up is to save stable baseline artifacts for the new manual/report/system-card harnesses, keep those suites gating, and leave the long-form `infinite_jest` questions exploratory until their retrieval and citation behavior is repeatable enough to promote.
+The streaming QA slice is now complete. The immediate follow-up is to make runtime configuration more visible and easier to run in fully local or mixed modes, while continuing to promote only stable long-form citation checks into the gating lane.

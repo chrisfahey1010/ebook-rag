@@ -29,6 +29,8 @@ Set `EMBEDDING_DIMENSIONS` to match the configured embedding model before runnin
 - `POST /api/documents/upload`
 - `GET /api/ingestion/{document_id}/status`
 - `POST /api/ingestion/{document_id}/reprocess`
+- `POST /api/qa/ask`
+- `POST /api/qa/ask-stream`
 - `GET /api/debug/documents/{document_id}/chunks`
 - `POST /api/debug/retrieve`
 - `POST /api/debug/rerank`
