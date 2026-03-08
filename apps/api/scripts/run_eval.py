@@ -38,6 +38,7 @@ LATENCY_METRICS = (
     "latency_p50_ms",
     "latency_p95_ms",
 )
+LATENCY_REGRESSION_BUFFER_MS = 10.0
 
 EXCERPT_WHITESPACE_RE = re.compile(r"\s+")
 EXCERPT_SEPARATOR_DASH_RE = re.compile(r"\s-+\s")
@@ -554,7 +555,7 @@ def compare_summaries(
             delta is not None
             and baseline_value is not None
             and current_value is not None
-            and delta > 0
+            and delta >= LATENCY_REGRESSION_BUFFER_MS
         )
         metric_deltas[metric_name] = {
             "current": current_value,

@@ -392,8 +392,8 @@ The project should be considered V1 complete when all of the following are true:
 The best next coding slice is now:
 
 1. calibrate benchmark baselines and result artifacts
-   - save stable JSON/Markdown baseline artifacts for the new manual/report/system-card harnesses under `apps/api/benchmarks/results/`
-   - wire those saved baselines into regular `--compare-to ... --fail-on-regression` runs so regression checks stop depending on ad hoc local memory
+   - completed: saved stable JSON/Markdown baseline artifacts for the new manual/report/system-card harnesses under `apps/api/benchmarks/results/`
+   - completed: committed `apps/api/benchmarks/regression_suite.json` plus `scripts/run_regression_suite.py` so those suites rerun against saved baselines instead of ad hoc local memory
 2. tighten the remaining unstable long-form questions
    - keep `infinite_jest` exploratory by default
    - continue rewording or narrowing `hells_angels` and other long-form excerpt checks before promoting them into the gating lane

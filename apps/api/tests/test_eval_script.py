@@ -17,6 +17,16 @@ def load_run_eval_module():
     return module
 
 
+def load_script_module(script_name: str):
+    script_path = Path(__file__).resolve().parent.parent / "scripts" / script_name
+    spec = importlib.util.spec_from_file_location(script_name.replace(".py", ""), script_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_summarize_results_includes_percentiles_and_unsupported_precision() -> None:
     run_eval = load_run_eval_module()
     results = [
@@ -154,6 +164,97 @@ def test_compare_summaries_flags_quality_and_latency_regressions() -> None:
     assert comparison["metrics"]["answer_match_rate"]["regressed"] is False
     assert comparison["metrics"]["citation_evidence_hit_rate"]["regressed"] is False
     assert comparison["metrics"]["answer_match_rate"]["delta"] == pytest.approx(0.05)
+
+
+def test_compare_summaries_ignores_small_latency_jitter() -> None:
+    run_eval = load_run_eval_module()
+    current = {
+        "benchmark": "current",
+        "generated_at": "2026-03-07T00:00:00+00:00",
+        "retrieval_hit_rate": 1.0,
+        "citation_hit_rate": 1.0,
+        "citation_evidence_hit_rate": 1.0,
+        "gating_citation_evidence_hit_rate": 1.0,
+        "support_accuracy": 1.0,
+        "answer_match_rate": 1.0,
+        "unsupported_precision": 1.0,
+        "average_latency_ms": 104.0,
+        "latency_p50_ms": 103.0,
+        "latency_p95_ms": 109.5,
+    }
+    baseline = {
+        "benchmark": "baseline",
+        "generated_at": "2026-03-06T00:00:00+00:00",
+        "retrieval_hit_rate": 1.0,
+        "citation_hit_rate": 1.0,
+        "citation_evidence_hit_rate": 1.0,
+        "gating_citation_evidence_hit_rate": 1.0,
+        "support_accuracy": 1.0,
+        "answer_match_rate": 1.0,
+        "unsupported_precision": 1.0,
+        "average_latency_ms": 100.0,
+        "latency_p50_ms": 100.0,
+        "latency_p95_ms": 100.0,
+    }
+
+    comparison = run_eval.compare_summaries(current, baseline)
+
+    assert comparison["has_regressions"] is False
+    assert comparison["metrics"]["latency_p95_ms"]["regressed"] is False
+
+
+def test_regression_suite_manifest_requires_expected_fields(tmp_path: Path) -> None:
+    regression_suite = load_script_module("run_regression_suite.py")
+    suite_path = tmp_path / "regression_suite.json"
+    suite_path.write_text(json.dumps({"name": "suite", "entries": [{"name": "only-name"}]}))
+
+    with pytest.raises(ValueError, match="missing required fields"):
+        regression_suite.load_suite(suite_path)
+
+
+def test_regression_suite_requires_existing_baseline_file(tmp_path: Path) -> None:
+    regression_suite = load_script_module("run_regression_suite.py")
+    missing_path = tmp_path / "missing.json"
+
+    with pytest.raises(FileNotFoundError, match="Missing regression baseline"):
+        regression_suite.load_baseline_summary(missing_path)
+
+
+def test_regression_suite_markdown_lists_regressions() -> None:
+    regression_suite = load_script_module("run_regression_suite.py")
+    report = regression_suite.render_suite_markdown(
+        suite_name="suite",
+        suite_path=Path("/tmp/regression_suite.json"),
+        chunking_config={
+            "target_words": 420,
+            "min_words": 180,
+            "overlap_words": 64,
+            "max_heading_words": 12,
+        },
+        write_baselines=False,
+        entries=[
+            {
+                "name": "john-deere",
+                "benchmark": "/tmp/john.json",
+                "baseline_json": "/tmp/john_baseline.json",
+                "latest_json": "/tmp/john_latest.json",
+                "has_regressions": True,
+                "comparison": {"regressions": ["retrieval_hit_rate", "latency_p95_ms"]},
+                "summary": {
+                    "retrieval_hit_rate": 0.8,
+                    "citation_hit_rate": 0.9,
+                    "gating_citation_evidence_hit_rate": 1.0,
+                    "support_accuracy": 0.9,
+                    "answer_match_rate": 0.9,
+                    "unsupported_precision": 1.0,
+                    "average_latency_ms": 25.0,
+                },
+            }
+        ],
+    )
+
+    assert "compare-to-baseline" in report
+    assert "retrieval_hit_rate, latency_p95_ms" in report
 
 
 def test_render_markdown_report_includes_comparison_and_failures() -> None:
@@ -408,7 +509,9 @@ def test_load_benchmark_document_bytes_requires_source() -> None:
 def test_benchmark_fixtures_have_valid_sources_and_question_metadata() -> None:
     benchmark_dir = Path(__file__).resolve().parent.parent / "benchmarks"
     benchmark_files = sorted(
-        path for path in benchmark_dir.glob("*.json") if path.parent.name != "results"
+        path
+        for path in benchmark_dir.glob("*.json")
+        if path.parent.name != "results" and path.name != "regression_suite.json"
     )
 
     assert benchmark_files

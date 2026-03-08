@@ -219,6 +219,18 @@ uv run python scripts/run_eval.py --benchmark benchmarks/infinite_jest_eval.json
 
 The `infinite_jest` benchmark is intentionally exploratory for now, while the manual/report/system-card benchmarks are intended to add stable coverage for exact spec lookup, front-matter noise, acronym-heavy technical QA, and unsupported-answer behavior beyond the earlier `hells_angels` and Amazon earnings harnesses.
 
+To rerun the committed gating regression lane for those newer stable suites and compare against saved baselines:
+
+```bash
+uv run python scripts/run_regression_suite.py
+```
+
+That suite reads [`apps/api/benchmarks/regression_suite.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/regression_suite.json), refreshes the `*_latest` artifacts under [`apps/api/benchmarks/results/`](/home/chris/repos/ebook-rag/apps/api/benchmarks/results), compares each benchmark to its committed baseline, and exits non-zero on gating regressions. Refresh saved baselines intentionally with:
+
+```bash
+uv run python scripts/run_regression_suite.py --write-baselines
+```
+
 For page-local citation regression coverage, there is also a focused benchmark with sentence-level citation expectations:
 
 ```bash

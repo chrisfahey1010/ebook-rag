@@ -1,0 +1,256 @@
+{
+  "benchmark": "john-deere-mower-manual-eval",
+  "benchmark_path": "/home/chris/repos/ebook-rag/apps/api/benchmarks/john_deere_mower_manual_eval.json",
+  "generated_at": "2026-03-08T12:23:03.724199+00:00",
+  "top_k": 5,
+  "chunking_config": {
+    "target_words": 420,
+    "min_words": 180,
+    "overlap_words": 64,
+    "max_heading_words": 12
+  },
+  "questions": 6,
+  "gating_questions": 6,
+  "exploratory_questions": 0,
+  "retrieval_hit_rate": 1.0,
+  "citation_hit_rate": 1.0,
+  "citation_evidence_hit_rate": 1.0,
+  "gating_citation_evidence_hit_rate": 1.0,
+  "support_accuracy": 1.0,
+  "answer_match_rate": 1.0,
+  "unsupported_precision": 1.0,
+  "average_latency_ms": 215.078056500109,
+  "latency_p50_ms": 219.2482225018466,
+  "latency_p95_ms": 288.10459849864856,
+  "predicted_unsupported_count": 1,
+  "expected_unsupported_count": 1,
+  "document_summaries": [
+    {
+      "document": "john_deere_mower_manual.pdf",
+      "questions": 6,
+      "gating_questions": 6,
+      "exploratory_questions": 0,
+      "gating_failures": 0,
+      "exploratory_failures": 0
+    }
+  ],
+  "results": [
+    {
+      "document": "john_deere_mower_manual.pdf",
+      "question": "What three actions should you take when leaving the machine?",
+      "expected_supported": true,
+      "supported": true,
+      "regression_tier": "gating",
+      "citation_match_mode": "any",
+      "citation_text_match_mode": "all",
+      "expected_citation_pages": [
+        10
+      ],
+      "expected_citation_text_contains": [
+        "Stop the engine",
+        "Set the park brake",
+        "Remove the key"
+      ],
+      "retrieved_pages": [
+        3,
+        10,
+        17,
+        18,
+        27
+      ],
+      "cited_pages": [
+        10
+      ],
+      "cited_texts": [
+        "\u25cfWhen leaving the machine: - Stop the engine - Set the park brake - Remove the key"
+      ],
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "citation_text_hit": true,
+      "support_hit": true,
+      "answer_hit": true,
+      "latency_ms": 162.82152100029634,
+      "answer_preview": "\u25cfWhen leaving the machine: - Stop the engine - Set the park brake - Remove the key."
+    },
+    {
+      "document": "john_deere_mower_manual.pdf",
+      "question": "If the machine loses traction on a slope, what should you do, and what direction should you drive on slopes?",
+      "expected_supported": true,
+      "supported": true,
+      "regression_tier": "gating",
+      "citation_match_mode": "any",
+      "citation_text_match_mode": "all",
+      "expected_citation_pages": [
+        10
+      ],
+      "expected_citation_text_contains": [
+        "If the machine loses traction on a slope, stop the blade, and proceed slowly off the slope",
+        "Drive up and down slopes, not across them"
+      ],
+      "retrieved_pages": [
+        2,
+        3,
+        10,
+        16,
+        18,
+        58
+      ],
+      "cited_pages": [
+        10,
+        16
+      ],
+      "cited_texts": [
+        "SDHTXN6,1745831127013-19-06MAY25 WARNING MX663347\u2014UN\u201406MAY25 AVOID SERIOUS INJURY OR DEATH FROM ROLLOVER \u25cfDo not drive where the machine could slip or tip, such as on steep slopes, near water, or drop-offs. \u25cfDrive up and down slopes, not across them. \u25cfIf the machine loses traction on a slope, stop the blade, and proceed slowly off the slope.",
+        "\u25cfKeep all movement on slopes slow and gradual. Do not make sudden changes in speed or direction, which can cause the ride-on mower to roll over. \u25cfIf the tires lose traction, disengage the PTO and proceed slowly and carefully off the slope."
+      ],
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "citation_text_hit": true,
+      "support_hit": true,
+      "answer_hit": true,
+      "latency_ms": 274.95434599768487,
+      "answer_preview": "\u25cfIf the machine loses traction on a slope, stop the blade, and proceed slowly off the slope. \u25cfKeep all movement on slopes slow and gradual. Do not make sudden changes in speed or direction, which can cause the ride-on mower to roll over."
+    },
+    {
+      "document": "john_deere_mower_manual.pdf",
+      "question": "What should you not use to clear a plugged mower deck or blower assembly?",
+      "expected_supported": true,
+      "supported": true,
+      "regression_tier": "gating",
+      "citation_match_mode": "any",
+      "citation_text_match_mode": "any",
+      "expected_citation_pages": [
+        32
+      ],
+      "expected_citation_text_contains": [
+        "Do not use hands or feet to clear plugged mower deck or blower assembly"
+      ],
+      "retrieved_pages": [
+        6,
+        7,
+        32,
+        34,
+        76
+      ],
+      "cited_pages": [
+        32
+      ],
+      "cited_texts": [
+        "Do not use hands or feet to clear plugged mower deck or blower assembly."
+      ],
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "citation_text_hit": true,
+      "support_hit": true,
+      "answer_hit": true,
+      "latency_ms": 191.90414200056694,
+      "answer_preview": "Do not use hands or feet to clear plugged mower deck or blower assembly."
+    },
+    {
+      "document": "john_deere_mower_manual.pdf",
+      "question": "What should you do before cleaning the machine to avoid equipment fires?",
+      "expected_supported": true,
+      "supported": true,
+      "regression_tier": "gating",
+      "citation_match_mode": "any",
+      "citation_text_match_mode": "all",
+      "expected_citation_pages": [
+        11
+      ],
+      "expected_citation_text_contains": [
+        "Shut off engine and allow machine to cool before cleaning"
+      ],
+      "retrieved_pages": [
+        2,
+        3,
+        10,
+        11,
+        13,
+        14,
+        15,
+        17,
+        18
+      ],
+      "cited_pages": [
+        10,
+        11
+      ],
+      "cited_texts": [
+        "OUO2004,0000BB3-19-28FEB15 CAUTION APY36145\u2014UN\u201410JUL20 Avoid equipment fires Accumulation of grass, leaves and other debris on or near hot or moving parts can cause a fire Inspect machine before, during, and after use Shut off engine and allow machine to cool before cleaning"
+      ],
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "citation_text_hit": true,
+      "support_hit": true,
+      "answer_hit": true,
+      "latency_ms": 246.5923030031263,
+      "answer_preview": "OUO2004,0000BB3-19-28FEB15 CAUTION APY36145\u2014UN\u201410JUL20 Avoid equipment fires Accumulation of grass, leaves and other debris on or near hot or moving parts can cause a fire Inspect machine before, during, and after use Shut off engine and al"
+    },
+    {
+      "document": "john_deere_mower_manual.pdf",
+      "question": "When moving the machine by hand, what does the manual say about using another vehicle?",
+      "expected_supported": true,
+      "supported": true,
+      "regression_tier": "gating",
+      "citation_match_mode": "any",
+      "citation_text_match_mode": "any",
+      "expected_citation_pages": [
+        32
+      ],
+      "expected_citation_text_contains": [
+        "Do not use another vehicle to move machine"
+      ],
+      "retrieved_pages": [
+        5,
+        6,
+        7,
+        32,
+        35,
+        36,
+        75
+      ],
+      "cited_pages": [
+        32
+      ],
+      "cited_texts": [
+        "Transmission damage may occur if the machine is towed or moved incorrectly: \u25cfMove machine by hand only. \u25cfDo not use another vehicle to move machine."
+      ],
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "citation_text_hit": true,
+      "support_hit": true,
+      "answer_hit": true,
+      "latency_ms": 292.4880159989698,
+      "answer_preview": "Transmission damage may occur if the machine is towed or moved incorrectly: \u25cfMove machine by hand only. \u25cfDo not use another vehicle to move machine."
+    },
+    {
+      "document": "john_deere_mower_manual.pdf",
+      "question": "What does the manual say about enabling autonomous GPS mowing mode?",
+      "expected_supported": false,
+      "supported": false,
+      "regression_tier": "gating",
+      "citation_match_mode": "any",
+      "citation_text_match_mode": "any",
+      "expected_citation_pages": [],
+      "expected_citation_text_contains": [],
+      "retrieved_pages": [
+        2,
+        3,
+        5,
+        14,
+        15,
+        48,
+        50
+      ],
+      "cited_pages": [],
+      "cited_texts": [],
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "citation_text_hit": true,
+      "support_hit": true,
+      "answer_hit": true,
+      "latency_ms": 121.70801100000972,
+      "answer_preview": "I could not find enough support in the indexed document content to answer that question."
+    }
+  ]
+}

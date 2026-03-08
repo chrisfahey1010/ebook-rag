@@ -63,6 +63,21 @@ Questions can also declare:
 Citation excerpt matching is normalization-aware for benchmark purposes: whitespace runs, separator-dash variants, smart quotes, and common currency/percent spacing differences are collapsed before excerpt expectations are compared.
 
 `--fail-on-regression` only gates on the regression lane. Exploratory excerpt checks still appear in the report, but they do not trigger a non-zero exit code on their own.
+Latency regressions use a small `10 ms` buffer so reruns do not fail on trivial local jitter.
+
+The committed regression lane for the newer gating suites is tracked in [`benchmarks/regression_suite.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/regression_suite.json). From `apps/api`, use:
+
+```bash
+uv run python scripts/run_regression_suite.py
+```
+
+That command reruns the manual/report/system-card benchmarks, writes fresh `*_latest.json` and `*_latest.md` artifacts under `benchmarks/results/`, compares each run to its saved baseline, and exits non-zero if any gating metric regresses.
+
+To refresh the saved baselines intentionally:
+
+```bash
+uv run python scripts/run_regression_suite.py --write-baselines
+```
 
 To run the focused page-local citation benchmark:
 
@@ -91,7 +106,7 @@ The local real-document fixture library under `benchmarks/local/` now includes:
 - `qwen3_technical_report.pdf` for technical-report and acronym-heavy questions
 - `gpt-5-4_thinking_card.pdf` for model/system-card style factual summaries and policy-like constraints
 
-Only part of this corpus is wired into dedicated benchmark JSON files today. The next evaluation step is to add document-specific question sets for the newer fixtures so the broader local corpus becomes repeatable regression coverage rather than an ad hoc source library.
+The manual/report/system-card fixtures now have dedicated benchmark JSON files plus committed baseline artifacts. `infinite_jest` remains exploratory and `hells_angels` still mixes gating and exploratory checks, so those longer-form suites should be promoted more cautiously.
 
 To compare the built-in chunking presets and emit a recommendation report:
 

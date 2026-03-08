@@ -15,7 +15,10 @@ node_modules/
 *.pyc
 *.db
 apps/api/data/uploads/
-apps/api/benchmarks/results/
+apps/api/benchmarks/results/*
+!apps/api/benchmarks/results/
+!apps/api/benchmarks/results/*baseline_*.json
+!apps/api/benchmarks/results/*baseline_*.md
 apps/api/benchmarks/local/
 *.pdf:Zone.Identifier
 hells_angels.pdf

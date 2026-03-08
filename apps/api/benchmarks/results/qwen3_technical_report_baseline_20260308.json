@@ -1,0 +1,255 @@
+{
+  "benchmark": "qwen3-technical-report-eval",
+  "benchmark_path": "/home/chris/repos/ebook-rag/apps/api/benchmarks/qwen3_technical_report_eval.json",
+  "generated_at": "2026-03-08T12:23:06.294880+00:00",
+  "top_k": 5,
+  "chunking_config": {
+    "target_words": 420,
+    "min_words": 180,
+    "overlap_words": 64,
+    "max_heading_words": 12
+  },
+  "questions": 6,
+  "gating_questions": 6,
+  "exploratory_questions": 0,
+  "retrieval_hit_rate": 1.0,
+  "citation_hit_rate": 1.0,
+  "citation_evidence_hit_rate": 1.0,
+  "gating_citation_evidence_hit_rate": 1.0,
+  "support_accuracy": 1.0,
+  "answer_match_rate": 1.0,
+  "unsupported_precision": 1.0,
+  "average_latency_ms": 365.9940115012432,
+  "latency_p50_ms": 388.3462045014312,
+  "latency_p95_ms": 441.486668251855,
+  "predicted_unsupported_count": 1,
+  "expected_unsupported_count": 1,
+  "document_summaries": [
+    {
+      "document": "qwen3_technical_report.pdf",
+      "questions": 6,
+      "gating_questions": 6,
+      "exploratory_questions": 0,
+      "gating_failures": 0,
+      "exploratory_failures": 0
+    }
+  ],
+  "results": [
+    {
+      "document": "qwen3_technical_report.pdf",
+      "question": "How many languages and dialects does Qwen3 support?",
+      "expected_supported": true,
+      "supported": true,
+      "regression_tier": "gating",
+      "citation_match_mode": "any",
+      "citation_text_match_mode": "any",
+      "expected_citation_pages": [
+        2
+      ],
+      "expected_citation_text_contains": [
+        "36 trillion tokens covering up to 119 languages and dialects"
+      ],
+      "retrieved_pages": [
+        1,
+        2,
+        3,
+        4,
+        22
+      ],
+      "cited_pages": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "cited_texts": [
+        "Pre-training Data Compared with Qwen2.5 (Yang et al., 2024b), we have significantly expanded the scale and diversity of our training data. Specifically, we collected twice as many pre-training tokens\u2014covering three times more languages. All Qwen3 models are trained on a large and diverse dataset consisting of 119 languages and dialects, with a total of 36 trillion tokens.",
+        "Furthermore, Qwen3 has been pre-trained on 36 trillion tokens covering up to 119 languages and dialects, effectively enhancing its multilingual capabilities. This broadened language support amplifies its potential for deployment in global use cases and international applications."
+      ],
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "citation_text_hit": true,
+      "support_hit": true,
+      "answer_hit": true,
+      "latency_ms": 405.7693050017406,
+      "answer_preview": "Pre-training Data Compared with Qwen2.5 (Yang et al., 2024b), we have significantly expanded the scale and diversity of our training data. Specifically, we collected twice as many pre-training tokens\u2014covering three times more languages. All"
+    },
+    {
+      "document": "qwen3_technical_report.pdf",
+      "question": "What are the total and activated parameter counts of the flagship Qwen3-235B-A22B model?",
+      "expected_supported": true,
+      "supported": true,
+      "regression_tier": "gating",
+      "citation_match_mode": "any",
+      "citation_text_match_mode": "any",
+      "expected_citation_pages": [
+        3
+      ],
+      "expected_citation_text_contains": [
+        "235B parameters with 22B activated ones"
+      ],
+      "retrieved_pages": [
+        1,
+        2,
+        3,
+        5,
+        15
+      ],
+      "cited_pages": [
+        3
+      ],
+      "cited_texts": [
+        "The flagship model, Qwen3-235B-A22B, has a total of 235B parameters with 22B activated ones."
+      ],
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "citation_text_hit": true,
+      "support_hit": true,
+      "answer_hit": true,
+      "latency_ms": 380.2419519997784,
+      "answer_preview": "The flagship model, Qwen3-235B-A22B, has a total of 235B parameters with 22B activated ones."
+    },
+    {
+      "document": "qwen3_technical_report.pdf",
+      "question": "What mechanism lets users allocate computational resources adaptively during inference?",
+      "expected_supported": true,
+      "supported": true,
+      "regression_tier": "gating",
+      "citation_match_mode": "any",
+      "citation_text_match_mode": "any",
+      "expected_citation_pages": [
+        1
+      ],
+      "expected_citation_text_contains": [
+        "thinking budget mechanism"
+      ],
+      "retrieved_pages": [
+        1,
+        2,
+        3,
+        4,
+        22
+      ],
+      "cited_pages": [
+        1
+      ],
+      "cited_texts": [
+        "Meanwhile, Qwen3 introduces a thinking budget mechanism, allowing users to allocate computational resources adaptively during inference, thereby balancing latency and performance based on task complexity."
+      ],
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "citation_text_hit": true,
+      "support_hit": true,
+      "answer_hit": true,
+      "latency_ms": 303.54327600070974,
+      "answer_preview": "Meanwhile, Qwen3 introduces a thinking budget mechanism, allowing users to allocate computational resources adaptively during inference, thereby balancing latency and performance based on task complexity."
+    },
+    {
+      "document": "qwen3_technical_report.pdf",
+      "question": "Which two operating modes does Qwen3 integrate into a single model?",
+      "expected_supported": true,
+      "supported": true,
+      "regression_tier": "gating",
+      "citation_match_mode": "any",
+      "citation_text_match_mode": "all",
+      "expected_citation_pages": [
+        2
+      ],
+      "expected_citation_text_contains": [
+        "thinking mode and non-thinking mode"
+      ],
+      "retrieved_pages": [
+        1,
+        2,
+        3,
+        11,
+        12
+      ],
+      "cited_pages": [
+        1,
+        2
+      ],
+      "cited_texts": [
+        "Qwen3 introduces several key advancements to enhance its functionality and usability. First, it integrates two distinct operating modes, thinking mode and non-thinking mode, into a single model."
+      ],
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "citation_text_hit": true,
+      "support_hit": true,
+      "answer_hit": true,
+      "latency_ms": 396.450457003084,
+      "answer_preview": "Qwen3 introduces several key advancements to enhance its functionality and usability. First, it integrates two distinct operating modes, thinking mode and non-thinking mode, into a single model."
+    },
+    {
+      "document": "qwen3_technical_report.pdf",
+      "question": "How many languages does Qwen3 cover, and under what license are the models publicly accessible?",
+      "expected_supported": true,
+      "supported": true,
+      "regression_tier": "gating",
+      "citation_match_mode": "any",
+      "citation_text_match_mode": "all",
+      "expected_citation_pages": [
+        1
+      ],
+      "expected_citation_text_contains": [
+        "Apache 2.0",
+        "119 languages and dialects"
+      ],
+      "retrieved_pages": [
+        1,
+        3,
+        4,
+        11,
+        12,
+        13,
+        14
+      ],
+      "cited_pages": [
+        1,
+        3,
+        4
+      ],
+      "cited_texts": [
+        "Pre-training Data Compared with Qwen2.5 (Yang et al., 2024b), we have significantly expanded the scale and diversity of our training data. Specifically, we collected twice as many pre-training tokens\u2014covering three times more languages. All Qwen3 models are trained on a large and diverse dataset consisting of 119 languages and dialects, with a total of 36 trillion tokens.",
+        "Compared to its predecessor Qwen2.5, Qwen3 expands multilingual support from 29 to 119 languages and dialects, enhancing global accessibility through improved cross-lingual understand- ing and generation capabilities. To facilitate reproducibility and community-driven research and development, all Qwen3 models are publicly accessible under Apache 2.0. 1"
+      ],
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "citation_text_hit": true,
+      "support_hit": true,
+      "answer_hit": true,
+      "latency_ms": 453.39245600189315,
+      "answer_preview": "Pre-training Data Compared with Qwen2.5 (Yang et al., 2024b), we have significantly expanded the scale and diversity of our training data. Specifically, we collected twice as many pre-training tokens\u2014covering three times more languages. All"
+    },
+    {
+      "document": "qwen3_technical_report.pdf",
+      "question": "What does the report say about Qwen3 supporting 256 languages?",
+      "expected_supported": false,
+      "supported": false,
+      "regression_tier": "gating",
+      "citation_match_mode": "any",
+      "citation_text_match_mode": "any",
+      "expected_citation_pages": [],
+      "expected_citation_text_contains": [],
+      "retrieved_pages": [
+        1,
+        2,
+        3,
+        22,
+        23,
+        24,
+        29,
+        30
+      ],
+      "cited_pages": [],
+      "cited_texts": [],
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "citation_text_hit": true,
+      "support_hit": true,
+      "answer_hit": true,
+      "latency_ms": 256.56662300025346,
+      "answer_preview": "I could not find enough support in the indexed document content to answer that question."
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "name": "default-gating-regression-suite",
+  "entries": [
+    {
+      "name": "john-deere-mower-manual",
+      "benchmark": "benchmarks/john_deere_mower_manual_eval.json",
+      "baseline_json": "benchmarks/results/john_deere_mower_manual_baseline_20260308.json",
+      "baseline_markdown": "benchmarks/results/john_deere_mower_manual_baseline_20260308.md",
+      "latest_json": "benchmarks/results/john_deere_mower_manual_latest.json",
+      "latest_markdown": "benchmarks/results/john_deere_mower_manual_latest.md"
+    },
+    {
+      "name": "qwen3-technical-report",
+      "benchmark": "benchmarks/qwen3_technical_report_eval.json",
+      "baseline_json": "benchmarks/results/qwen3_technical_report_baseline_20260308.json",
+      "baseline_markdown": "benchmarks/results/qwen3_technical_report_baseline_20260308.md",
+      "latest_json": "benchmarks/results/qwen3_technical_report_latest.json",
+      "latest_markdown": "benchmarks/results/qwen3_technical_report_latest.md"
+    },
+    {
+      "name": "gpt-5-4-thinking-card",
+      "benchmark": "benchmarks/gpt_5_4_thinking_card_eval.json",
+      "baseline_json": "benchmarks/results/gpt_5_4_thinking_card_baseline_20260308.json",
+      "baseline_markdown": "benchmarks/results/gpt_5_4_thinking_card_baseline_20260308.md",
+      "latest_json": "benchmarks/results/gpt_5_4_thinking_card_latest.json",
+      "latest_markdown": "benchmarks/results/gpt_5_4_thinking_card_latest.md"
+    }
+  ]
+}

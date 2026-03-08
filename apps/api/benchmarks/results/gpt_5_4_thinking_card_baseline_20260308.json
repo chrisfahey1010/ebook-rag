@@ -1,0 +1,257 @@
+{
+  "benchmark": "gpt-5-4-thinking-card-eval",
+  "benchmark_path": "/home/chris/repos/ebook-rag/apps/api/benchmarks/gpt_5_4_thinking_card_eval.json",
+  "generated_at": "2026-03-08T12:23:07.533561+00:00",
+  "top_k": 5,
+  "chunking_config": {
+    "target_words": 420,
+    "min_words": 180,
+    "overlap_words": 64,
+    "max_heading_words": 12
+  },
+  "questions": 6,
+  "gating_questions": 6,
+  "exploratory_questions": 0,
+  "retrieval_hit_rate": 1.0,
+  "citation_hit_rate": 1.0,
+  "citation_evidence_hit_rate": 1.0,
+  "gating_citation_evidence_hit_rate": 1.0,
+  "support_accuracy": 1.0,
+  "answer_match_rate": 1.0,
+  "unsupported_precision": 1.0,
+  "average_latency_ms": 175.52991716729593,
+  "latency_p50_ms": 168.37781899994297,
+  "latency_p95_ms": 222.19660250175366,
+  "predicted_unsupported_count": 1,
+  "expected_unsupported_count": 1,
+  "document_summaries": [
+    {
+      "document": "gpt-5-4_thinking_card.pdf",
+      "questions": 6,
+      "gating_questions": 6,
+      "exploratory_questions": 0,
+      "gating_failures": 0,
+      "exploratory_failures": 0
+    }
+  ],
+  "results": [
+    {
+      "document": "gpt-5-4_thinking_card.pdf",
+      "question": "Because there is no GPT-5.3 Thinking model, which model does the card say is the main baseline for GPT-5.4 Thinking?",
+      "expected_supported": true,
+      "supported": true,
+      "regression_tier": "gating",
+      "citation_match_mode": "any",
+      "citation_text_match_mode": "all",
+      "expected_citation_pages": [
+        4
+      ],
+      "expected_citation_text_contains": [
+        "there is not a model named GPT-5.3 Thinking",
+        "the main model to baseline against is GPT-5.2 Thinking"
+      ],
+      "retrieved_pages": [
+        4,
+        12,
+        13,
+        19,
+        20,
+        33,
+        34
+      ],
+      "cited_pages": [
+        4
+      ],
+      "cited_texts": [
+        "In this card we also refer to GPT-5.4 Thinking as gpt-5.4-thinking. Note that there is not a model named GPT-5.3 Thinking, so the main model to baseline against is GPT-5.2 Thinking. 2"
+      ],
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "citation_text_hit": true,
+      "support_hit": true,
+      "answer_hit": true,
+      "latency_ms": 225.0201390015718,
+      "answer_preview": "In this card we also refer to GPT-5.4 Thinking as gpt-5.4-thinking. Note that there is not a model named GPT-5.3 Thinking, so the main model to baseline against is GPT-5.2 Thinking. 2."
+    },
+    {
+      "document": "gpt-5-4_thinking_card.pdf",
+      "question": "GPT-5.4 Thinking is the first general purpose model to implement mitigations for what capability area?",
+      "expected_supported": true,
+      "supported": true,
+      "regression_tier": "gating",
+      "citation_match_mode": "any",
+      "citation_text_match_mode": "any",
+      "expected_citation_pages": [
+        4
+      ],
+      "expected_citation_text_contains": [
+        "the first general purpose model to have implemented mitigations for High capability in Cybersecurity"
+      ],
+      "retrieved_pages": [
+        4,
+        11,
+        17,
+        32,
+        33,
+        34
+      ],
+      "cited_pages": [
+        4
+      ],
+      "cited_texts": [
+        "Introduction GPT-5.4 Thinking is the latest reasoning model in the GPT-5 series, and explained in our blog. The comprehensive safety mitigation approach for this model is similar to previous models in this series, but 5.4 Thinking is the first general purpose model to have implemented mitigations for High capability in Cybersecurity."
+      ],
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "citation_text_hit": true,
+      "support_hit": true,
+      "answer_hit": true,
+      "latency_ms": 184.69874899892602,
+      "answer_preview": "Introduction GPT-5.4 Thinking is the latest reasoning model in the GPT-5 series, and explained in our blog. The comprehensive safety mitigation approach for this model is similar to previous models in this series, but 5.4 Thinking is the fi"
+    },
+    {
+      "document": "gpt-5-4_thinking_card.pdf",
+      "question": "Which three domains are covered by the dynamic multi-turn evaluations described in the card?",
+      "expected_supported": true,
+      "supported": true,
+      "regression_tier": "gating",
+      "citation_match_mode": "any",
+      "citation_text_match_mode": "all",
+      "expected_citation_pages": [
+        5
+      ],
+      "expected_citation_text_contains": [
+        "mental health",
+        "emotional reliance",
+        "self-harm"
+      ],
+      "retrieved_pages": [
+        5,
+        6,
+        17,
+        22,
+        32,
+        33
+      ],
+      "cited_pages": [
+        5,
+        6
+      ],
+      "cited_texts": [
+        "Self-harm 0.904 0.955 0.977 Ahead of the GPT-5.3 Instant launch, we implemented dynamic multi-turn evaluations for mental health, emotional reliance, and self-harm that simulate extended conversations across these domains."
+      ],
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "citation_text_hit": true,
+      "support_hit": true,
+      "answer_hit": true,
+      "latency_ms": 152.05688900095993,
+      "answer_preview": "Self-harm 0.904 0.955 0.977 Ahead of the GPT-5.3 Instant launch, we implemented dynamic multi-turn evaluations for mental health, emotional reliance, and self-harm that simulate extended conversations across these domains."
+    },
+    {
+      "document": "gpt-5-4_thinking_card.pdf",
+      "question": "What combined Cyber Range pass rate does the card report for GPT-5.4 Thinking?",
+      "expected_supported": true,
+      "supported": true,
+      "regression_tier": "gating",
+      "citation_match_mode": "any",
+      "citation_text_match_mode": "any",
+      "expected_citation_pages": [
+        26
+      ],
+      "expected_citation_text_contains": [
+        "gpt-5.4-thinking: 73.33%"
+      ],
+      "retrieved_pages": [
+        24,
+        25,
+        26,
+        27,
+        30,
+        31,
+        32
+      ],
+      "cited_pages": [
+        25,
+        26
+      ],
+      "cited_texts": [
+        "PASS PASS PASS PASS Combined Pass Rate: \u2022 gpt-5.2-thinking: 47%2 \u2022 gpt-5.2-codex: 53.33% \u2022 gpt-5.3-codex: 80% \u2022 gpt-5.4-thinking: 73.33%"
+      ],
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "citation_text_hit": true,
+      "support_hit": true,
+      "answer_hit": true,
+      "latency_ms": 151.1497360006615,
+      "answer_preview": "PASS PASS PASS PASS Combined Pass Rate: \u2022 gpt-5.2-thinking: 47%2 \u2022 gpt-5.2-codex: 53.33% \u2022 gpt-5.3-codex: 80% \u2022 gpt-5.4-thinking: 73.33%."
+    },
+    {
+      "document": "gpt-5-4_thinking_card.pdf",
+      "question": "Under the Preparedness Framework, which domain does the card say GPT-5.4 Thinking does not have a plausible chance of reaching a High threshold in?",
+      "expected_supported": true,
+      "supported": true,
+      "regression_tier": "gating",
+      "citation_match_mode": "any",
+      "citation_text_match_mode": "any",
+      "expected_citation_pages": [
+        17
+      ],
+      "expected_citation_text_contains": [
+        "does not have a plausible chance of reaching a High threshold"
+      ],
+      "retrieved_pages": [
+        17,
+        21,
+        30,
+        31,
+        32,
+        33,
+        34
+      ],
+      "cited_pages": [
+        17
+      ],
+      "cited_texts": [
+        "We have applied the corresponding safeguards for this model as described in the GPT-5 system card. As we did for gpt-5.3-codex, we are treating gpt-5.4-thinking as High capability in the Cybersecurity domain, and applied safeguards as described in the Safeguard section below. For AI self-improvement, evaluations of final checkpoints indicate that, like its predecessor models, gpt-5.4-thinking does not have a plausible chance of reaching a High threshold. 5.1"
+      ],
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "citation_text_hit": true,
+      "support_hit": true,
+      "answer_hit": true,
+      "latency_ms": 213.72599300229922,
+      "answer_preview": "We have applied the corresponding safeguards for this model as described in the GPT-5 system card. As we did for gpt-5.3-codex, we are treating gpt-5.4-thinking as High capability in the Cybersecurity domain, and applied safeguards as descr"
+    },
+    {
+      "document": "gpt-5-4_thinking_card.pdf",
+      "question": "What does the card say about releasing GPT-5.4 Thinking weights under Apache 2.0?",
+      "expected_supported": false,
+      "supported": false,
+      "regression_tier": "gating",
+      "citation_match_mode": "any",
+      "citation_text_match_mode": "any",
+      "expected_citation_pages": [],
+      "expected_citation_text_contains": [],
+      "retrieved_pages": [
+        4,
+        5,
+        17,
+        21,
+        30,
+        31,
+        33,
+        34
+      ],
+      "cited_pages": [],
+      "cited_texts": [],
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "citation_text_hit": true,
+      "support_hit": true,
+      "answer_hit": true,
+      "latency_ms": 126.52799699935713,
+      "answer_preview": "I could not find enough support in the indexed document content to answer that question."
+    }
+  ]
+}
