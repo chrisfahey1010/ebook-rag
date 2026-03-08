@@ -2,6 +2,8 @@
 
 `ebook-rag` is a local-first PDF ebook question-answering platform built as a portfolio-quality monorepo. The project is designed to show clean backend, frontend, and local infrastructure fundamentals before layering in ingestion, retrieval, and citation-grounded answer generation.
 
+The current implementation already has real ingestion, hybrid retrieval, reranking, streaming QA, and benchmark tooling. The main remaining gap is answer intelligence: the retrieval stack is ahead of the answer layer, and the next major push is to make grounded local-model-backed answering a first-class path.
+
 ## Stack
 
 - `apps/api`: FastAPI on Python 3.12
@@ -138,10 +140,22 @@ Current limitations:
 - PostgreSQL vector storage now follows the configured embedding dimension, but changing dimensions requires running migrations and reprocessing existing documents
 - chunk sizing is now benchmark-backed for the current fixture set, but the benchmark still needs broader real-document coverage before the defaults should be treated as final
 - context assembly is still heuristic even though answer traces now separate selected context from cited evidence
+- the generative answer path is still thinner than the retrieval stack; the local extractive fallback is often doing more of the real work than the LLM-backed path
+- local-model runtime configuration is supported, but the recommended fully local setup is not yet documented and surfaced clearly enough
 - the March 8, 2026 ingestion-quality pass improved normalization and heading metadata structure, but the current benchmark suites did not show a measurable end-to-end quality lift from those ingestion changes alone
-- the long-document benchmark now has better unsupported-answer rejection, less metadata/front-matter confusion, and stronger date-specific citation tie-breaking, but it still misses some exact-page citation targets and page-local fact questions on long books
-- nickname-specific and some page-local/date-specific questions in the long-document benchmark can still retrieve the right neighborhood but choose the wrong sentence or citation page
-- the benchmark suite now includes a broader local real-document fixture set in `apps/api/benchmarks/local/`, including `hells_angels.pdf`, `amazon_quarterly_earnings2025Q4.pdf`, `john_deere_mower_manual.pdf`, `infinite_jest.pdf`, `qwen3_technical_report.pdf`, and `gpt-5-4_thinking_card.pdf`, and each of those documents is now wired into a dedicated benchmark JSON; the remaining risk is benchmark breadth, question stability, and excerpt-level gating discipline rather than fixture coverage itself
+- the long-form `hells_angels` benchmark still misses some exact-page citation targets and page-local fact questions on long books
+- the Amazon earnings benchmark is still exposing structured-evidence and unsupported-answer gaps in the current code path
+- the benchmark suite now includes a broader local real-document fixture set in `apps/api/benchmarks/local/`, including `hells_angels.pdf`, `amazon_quarterly_earnings2025Q4.pdf`, `john_deere_mower_manual.pdf`, `infinite_jest.pdf`, `qwen3_technical_report.pdf`, and `gpt-5-4_thinking_card.pdf`, but fixture breadth is no longer the main issue; the main issue is turning the strong retrieval stack into a stronger grounded answer pipeline
+
+## Local model direction
+
+The intended V1 direction is:
+
+- local embeddings through `sentence-transformers`
+- local reranking through a cross-encoder
+- local answer generation through an OpenAI-compatible runtime using a small instruct model such as Qwen 3.5/4B
+
+That split is deliberate. Small local LLMs are most valuable here for grounded answer synthesis, unsupported-answer classification, query decomposition, and answer verification. They should improve the answer layer, not replace the embedding model or reranker.
 
 ## API snapshot
 
@@ -228,7 +242,7 @@ The committed gating regression suite can be rerun with:
 uv run python scripts/run_regression_suite.py
 ```
 
-The latest March 8, 2026 benchmark sweep kept the gated regression suite green on answer quality, but did not show a measurable end-to-end quality improvement from the recent ingestion-only changes. Treat the current ingestion heuristics as structural/debuggability improvements and add targeted benchmark cases before doing more ingestion tuning.
+As of March 8, 2026, the committed regression suite is mostly stable on answer quality, but it is not fully green: a recent rerun flagged a `latency_p95_ms` regression on the John Deere manual benchmark. The recent ingestion-only changes also did not show a measurable end-to-end quality improvement. Treat the current ingestion heuristics as structural/debuggability improvements and add targeted benchmark cases before doing more ingestion tuning.
 
 The `infinite_jest` benchmark is intentionally exploratory for now, while the manual/report/system-card benchmarks are intended to add stable coverage for exact spec lookup, front-matter noise, acronym-heavy technical QA, and unsupported-answer behavior beyond the earlier `hells_angels` and Amazon earnings harnesses.
 
@@ -250,7 +264,7 @@ For page-local citation regression coverage, there is also a focused benchmark w
 uv run python scripts/run_eval.py --benchmark benchmarks/citation_granularity_eval.json
 ```
 
-That fixture keeps excerpt-accuracy checks in the gating lane, while selected `hells_angels` excerpt checks are marked exploratory so they surface long-form citation drift without blocking every merge. The aggregate citation-evidence metric still appears in reports, but `--fail-on-regression` gates on the explicit regression lane rather than exploratory excerpt misses. The Amazon earnings benchmark adds another real-document regression harness; on the March 8, 2026 run after the citation-assembly pass it reports `answer_match_rate=1.0`, `citation_hit_rate=1.0`, `citation_evidence_hit_rate=1.0`, `gating_citation_evidence_hit_rate=1.0`, and `unsupported_precision=1.0`. That closes the earlier narrative "why did free cash flow decrease" excerpt-evidence miss alongside the existing page-11 free-cash-flow and page-13 employee-count gating checks.
+That fixture keeps excerpt-accuracy checks in the gating lane, while selected `hells_angels` excerpt checks are marked exploratory so they surface long-form citation drift without blocking every merge. The aggregate citation-evidence metric still appears in reports, but `--fail-on-regression` gates on the explicit regression lane rather than exploratory excerpt misses. The Amazon earnings benchmark remains a useful tracked benchmark, but it is not currently a clean pass in the live code path. A fresh March 8, 2026 rerun produced `answer_match_rate=0.8`, `citation_hit_rate=0.8`, `citation_evidence_hit_rate=0.8`, `gating_citation_evidence_hit_rate=0.8`, and `unsupported_precision=0.5`, with remaining misses around structured/page-local evidence selection and unsupported-answer behavior.
 
 For regression tracking, the benchmark runner can also persist JSON and Markdown artifacts, compare a run against a saved baseline, and summarize per-document gating versus exploratory failures:
 
@@ -263,6 +277,8 @@ uv run python scripts/run_eval.py \
 ```
 
 The expanded summary now includes unsupported precision plus P50/P95 latency so retrieval and citation changes can be compared over time.
+
+If you want the current project plan rather than the benchmark mechanics, see [`IMPLEMENTATION_PLAN.md`](/home/chris/repos/ebook-rag/IMPLEMENTATION_PLAN.md). The short version is: stop open-ended retrieval tuning, lock down one truthful baseline, and make grounded local-model-backed answering the next major quality milestone.
 
 ## Ingestion configuration
 
