@@ -114,6 +114,7 @@ Current implementation includes:
 - extractive answer selection that can use adjacent-sentence spans and rejects weakly supported semantic neighbors more aggressively
 - extractive answer selection that can bridge abbreviated/split sentences like `Hunter S. Thompson` and score up to three-sentence evidence spans
 - extractive QA scoring that adds lightweight answer-type cues for date/count/location questions while filtering metadata-like evidence more aggressively
+- extractive QA scoring that can inspect structured numeric/table-like line groups for financial-report-style passages
 - sentence-level evidence excerpts for returned citations
 - per-answer-sentence citation attribution instead of mirroring the whole selected context window
 - question-aware citation ranking that breaks evidence ties using anchor terms, constraints, answer-type cues, and narrower page spans
@@ -132,7 +133,7 @@ Current limitations:
 - context assembly is still heuristic even though answer traces now separate selected context from cited evidence
 - the long-document benchmark now has better unsupported-answer rejection, less metadata/front-matter confusion, and stronger date-specific citation tie-breaking, but it still misses some exact-page citation targets and page-local fact questions on long books
 - nickname-specific and some page-local/date-specific questions in the long-document benchmark can still retrieve the right neighborhood but choose the wrong sentence or citation page
-- the benchmark suite now includes a shorter real-world Amazon earnings benchmark in addition to the curated and `hells_angels` cases, but numeric/table-heavy answer extraction and citation selection are still weak on that financial-report-style document
+- the benchmark suite now includes a shorter real-world Amazon earnings benchmark in addition to the curated and `hells_angels` cases; table-like numeric evidence selection improved on the latest pass, but mixed-metric page disambiguation and some exploratory financial-report-style answer/citation cases are still weak
 
 ## API snapshot
 
@@ -209,7 +210,7 @@ For page-local citation regression coverage, there is also a focused benchmark w
 uv run python scripts/run_eval.py --benchmark benchmarks/citation_granularity_eval.json
 ```
 
-That fixture keeps excerpt-accuracy checks in the gating lane, while selected `hells_angels` excerpt checks are marked exploratory so they surface long-form citation drift without blocking every merge. The aggregate citation-evidence metric still appears in reports, but `--fail-on-regression` gates on the explicit regression lane rather than exploratory excerpt misses. The Amazon earnings benchmark adds another real-document regression harness, but its harder numeric/table-style excerpt checks should remain informational until the QA layer becomes more reliable on financial-report formatting.
+That fixture keeps excerpt-accuracy checks in the gating lane, while selected `hells_angels` excerpt checks are marked exploratory so they surface long-form citation drift without blocking every merge. The aggregate citation-evidence metric still appears in reports, but `--fail-on-regression` gates on the explicit regression lane rather than exploratory excerpt misses. The Amazon earnings benchmark adds another real-document regression harness; on the March 8, 2026 run it still reports `answer_match_rate=0.5`, but citation-evidence coverage improved to `0.5` overall and `0.625` on the gating lane after the latest structured-numeric QA pass.
 
 For regression tracking, the benchmark runner can also persist JSON and Markdown artifacts and compare a run against a saved baseline:
 

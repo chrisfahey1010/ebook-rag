@@ -553,6 +553,77 @@ def _split_sentences(text: str) -> list[str]:
     return sentences
 
 
+def _split_structured_lines(text: str) -> list[str]:
+    lines: list[str] = []
+    for raw_line in text.splitlines():
+        normalized_line = " ".join(raw_line.split()).strip(" \t")
+        normalized_line = normalized_line.lstrip("\u2022*- ").strip()
+        if not normalized_line:
+            continue
+        if normalized_line in {"$", "%", "N/A"}:
+            continue
+        lines.append(normalized_line)
+    return lines
+
+
+def _deduplicate_text_units(units: list[str]) -> list[str]:
+    deduplicated: list[str] = []
+    seen: set[str] = set()
+    for unit in units:
+        normalized = " ".join(unit.split()).casefold()
+        if not normalized or normalized in seen:
+            continue
+        deduplicated.append(unit)
+        seen.add(normalized)
+    return deduplicated
+
+
+def _build_line_candidate_spans(lines: list[str]) -> list[str]:
+    spans: list[str] = []
+    max_window = min(8, len(lines))
+    for start_index in range(len(lines)):
+        for window_size in range(1, max_window + 1):
+            end_index = start_index + window_size
+            if end_index > len(lines):
+                break
+            spans.append(" ".join(lines[start_index:end_index]))
+    return spans
+
+
+def _looks_like_structured_numeric_block(lines: list[str]) -> bool:
+    if len(lines) < 6:
+        return False
+    numeric_lines = sum(1 for line in lines if re.search(r"\d", line))
+    short_lines = sum(1 for line in lines if len(TOKEN_RE.findall(line)) <= 8)
+    metric_lines = sum(
+        1
+        for line in lines
+        if any(
+            phrase in line.lower()
+            for phrase in (
+                "cash flow",
+                "net sales",
+                "operating income",
+                "employees",
+                "q1",
+                "q2",
+                "q3",
+                "q4",
+                "ttm",
+            )
+        )
+    )
+    return numeric_lines >= 4 and short_lines >= len(lines) // 2 and metric_lines >= 2
+
+
+def _build_candidate_spans_from_text(text: str) -> list[str]:
+    units = _build_candidate_spans(_split_sentences(text))
+    lines = _split_structured_lines(text)
+    if _looks_like_structured_numeric_block(lines):
+        units.extend(_build_line_candidate_spans(lines))
+    return _deduplicate_text_units(units)
+
+
 def build_qa_prompt(question: str, contexts: list[RetrievedChunkContext]) -> str:
     context_blocks = []
     for context in contexts:
@@ -712,15 +783,14 @@ def _build_evidence_excerpt(
     question_text: str,
     context: RetrievedChunkContext,
 ) -> RetrievedChunkContext:
-    sentences = _split_sentences(context.text)
-    if not sentences:
+    candidate_spans = _build_candidate_spans_from_text(context.text)
+    if not candidate_spans:
         return context
 
     answer_terms = _tokenize(answer_text)
     question_terms = _tokenize(question_text)
     anchor_terms = extract_anchor_terms(question_text)
     constraint_terms = extract_constraint_terms(question_text)
-    candidate_spans = _build_candidate_spans(sentences)
     best_span = max(
         candidate_spans,
         key=lambda span: _evidence_span_sort_key(
@@ -784,6 +854,9 @@ def _evidence_span_sort_key(
 
 
 def _trim_span_to_support(*, answer_text: str, question_text: str, span: str) -> str:
+    if contains_normalized_phrase(answer_text, span):
+        return span
+
     answer_terms = _tokenize(answer_text)
     question_terms = _tokenize(question_text)
     anchor_terms = extract_anchor_terms(question_text)
@@ -955,7 +1028,7 @@ def _build_sentence_candidates(
 ) -> list[SentenceCandidate]:
     candidates: list[SentenceCandidate] = []
     for context in contexts:
-        for sentence_span in _build_candidate_spans(_split_sentences(context.text)):
+        for sentence_span in _build_candidate_spans_from_text(context.text):
             if not sentence_span:
                 continue
             sentence_terms = _tokenize(sentence_span)
@@ -1162,6 +1235,7 @@ def _score_sentence_against_text(
         + query_run_bonus(prompt_text, candidate.sentence, max_bonus=0.24)
         + _ordered_term_bonus(prompt_text, candidate.sentence)
         + _answer_type_bonus(prompt_text, candidate.sentence)
+        + _structured_numeric_bonus(prompt_text, candidate.sentence)
         + max(candidate.context.score, 0.0) * 0.15
         - metadata_noise_score(candidate.sentence) * 0.25
         - _answer_type_penalty(prompt_text, candidate.sentence)
@@ -1388,6 +1462,72 @@ def _distinctive_support_terms(facet: QuestionFacet) -> set[str]:
         for term in (facet.anchor_terms | facet.constraint_terms)
         if len(term) >= 5 or any(character.isdigit() for character in term)
     }
+
+
+def _question_has_numeric_intent(question: str) -> bool:
+    lowered = question.lower()
+    if lowered.startswith(("how much", "how many", "how fast", "what was", "what were")):
+        return True
+    return any(term in lowered for term in ("percent", "sales", "income", "cash flow", "employees"))
+
+
+def _structured_numeric_bonus(question: str, text: str) -> float:
+    if not _question_has_numeric_intent(question):
+        return 0.0
+
+    bonus = 0.0
+    normalized_question = " ".join(normalized_token_sequence(question, drop_stopwords=True))
+    normalized_text = " ".join(normalized_token_sequence(text, drop_stopwords=True))
+    numeric_tokens = re.findall(r"\$?\d[\d,.]*%?", text)
+    currency_count = len(re.findall(r"\$\s*\d[\d,.]*", text))
+    percent_count = len(re.findall(r"\d[\d,.]*\s*%", text))
+    large_number_count = len(re.findall(r"\b\d{1,3}(?:,\d{3})+\b", text))
+
+    if numeric_tokens:
+        bonus += min(0.16, len(numeric_tokens) * 0.03)
+    if currency_count:
+        bonus += min(0.08, currency_count * 0.03)
+    if percent_count and ("percent" in question.lower() or "how fast" in question.lower()):
+        bonus += min(0.08, percent_count * 0.04)
+    if large_number_count and question.lower().startswith("how many"):
+        bonus += min(0.14, large_number_count * 0.03)
+    if (
+        any(marker in question.lower() for marker in ("q1", "q2", "q3", "q4", "quarter"))
+        and large_number_count >= 6
+    ):
+        bonus += 0.16
+
+    for phrase in (
+        "net sales",
+        "operating income",
+        "free cash flow",
+        "capital expenditures",
+        "employees",
+        "aws segment sales",
+    ):
+        if phrase in question.lower() and phrase in text.lower():
+            bonus += 0.18
+
+    if normalized_question and normalized_text:
+        question_pairs = {
+            " ".join(pair)
+            for pair in zip(
+                normalized_token_sequence(question, drop_stopwords=True),
+                normalized_token_sequence(question, drop_stopwords=True)[1:],
+                strict=False,
+            )
+        }
+        matched_pairs = sum(1 for pair in question_pairs if pair and pair in normalized_text)
+        if matched_pairs:
+            bonus += min(0.12, matched_pairs * 0.04)
+
+    if any(character.isdigit() for character in question):
+        question_years = set(re.findall(r"\b\d{4}\b", question))
+        text_years = set(re.findall(r"\b\d{4}\b", text))
+        if question_years & text_years:
+            bonus += 0.06
+
+    return bonus
 
 
 def _answer_type_bonus(question: str, text: str) -> float:

@@ -832,3 +832,130 @@ def test_assemble_answer_contexts_deprioritizes_metadata_front_matter() -> None:
     )
 
     assert selected[0].chunk_id == "chunk-2"
+
+
+def test_extractive_provider_handles_line_broken_table_metric_rows() -> None:
+    provider = ExtractiveAnswerProvider()
+    context = RetrievedChunkContext(
+        chunk_id="chunk-1",
+        document_id="doc-1",
+        document_title="Earnings",
+        document_filename="earnings.pdf",
+        chunk_index=11,
+        page_start=11,
+        page_end=11,
+        text=(
+            "Q3 2024\n"
+            "Q4 2024\n"
+            "Q1 2025\n"
+            "Q2 2025\n"
+            "Q3 2025\n"
+            "Q4 2025\n"
+            "Cash Flows and Shares\n"
+            "Operating cash flow -- trailing twelve months (TTM)\n"
+            "$ 112,706\n"
+            "$ 115,877\n"
+            "$ 113,903\n"
+            "$ 121,137\n"
+            "$ 130,691\n"
+            "$ 139,514\n"
+            "Free cash flow -- TTM (1)\n"
+            "$ 47,747\n"
+            "$ 38,219\n"
+            "$ 25,925\n"
+            "$ 18,184\n"
+            "$ 14,788\n"
+            "$ 11,194\n"
+            "(71) %"
+        ),
+        token_estimate=60,
+        score=0.94,
+        rerank_score=0.94,
+    )
+
+    answer = provider.generate_answer(
+        question="What was trailing-twelve-month free cash flow in Q4 2025?",
+        contexts=[context],
+    )
+
+    assert answer.supported is True
+    assert "11,194" in answer.answer_text
+    assert answer.citations
+    assert "free cash flow" in answer.citations[0].text.lower()
+    assert "11,194" in answer.citations[0].text
+
+
+def test_extractive_provider_handles_employee_count_rows() -> None:
+    provider = ExtractiveAnswerProvider()
+    context = RetrievedChunkContext(
+        chunk_id="chunk-1",
+        document_id="doc-1",
+        document_title="Earnings",
+        document_filename="earnings.pdf",
+        chunk_index=13,
+        page_start=13,
+        page_end=13,
+        text=(
+            "Q3 2024\n"
+            "Q4 2024\n"
+            "Q1 2025\n"
+            "Q2 2025\n"
+            "Q3 2025\n"
+            "Q4 2025\n"
+            "Employees (full-time and part-time; excludes contractors & temporary personnel)\n"
+            "1,551,000\n"
+            "1,556,000\n"
+            "1,560,000\n"
+            "1,546,000\n"
+            "1,578,000\n"
+            "1,576,000\n"
+            "1 %"
+        ),
+        token_estimate=44,
+        score=0.91,
+        rerank_score=0.91,
+    )
+
+    answer = provider.generate_answer(
+        question="How many employees did Amazon report in Q4 2025?",
+        contexts=[context],
+    )
+
+    assert answer.supported is True
+    assert "1,576,000" in answer.answer_text
+    assert answer.citations
+    assert "employees" in answer.citations[0].text.lower()
+    assert "1,576,000" in answer.citations[0].text
+
+
+def test_select_evidence_citations_prefers_numeric_guidance_line_over_nearby_metric() -> None:
+    context = RetrievedChunkContext(
+        chunk_id="chunk-1",
+        document_id="doc-1",
+        document_title="Earnings",
+        document_filename="earnings.pdf",
+        chunk_index=4,
+        page_start=4,
+        page_end=4,
+        text=(
+            "Financial Guidance\n"
+            "First Quarter 2026 Guidance\n"
+            "Net sales are expected to be between $173.5 billion and $178.5 billion.\n"
+            "Operating income is expected to be between $16.5 billion and $21.5 billion."
+        ),
+        token_estimate=28,
+        score=0.92,
+        rerank_score=0.92,
+    )
+
+    citations = select_evidence_citations(
+        answer_text="Net sales are expected to be between $173.5 billion and $178.5 billion.",
+        contexts=[context],
+        primary_context=context,
+        question_text="What net sales range did Amazon guide for the first quarter of 2026?",
+    )
+
+    assert len(citations) == 1
+    assert "net sales are expected to be between $173.5 billion and $178.5 billion" in (
+        citations[0].text.lower()
+    )
