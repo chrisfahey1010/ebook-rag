@@ -452,9 +452,9 @@ def route_question(
             should_use_generative=False,
         )
 
+    should_use_generative = isinstance(answer_provider, OpenAICompatibleAnswerProvider)
     if facet_count > 1:
-        should_use_generative = isinstance(answer_provider, OpenAICompatibleAnswerProvider)
-        return QuestionRoutingDecision(
+        provisional_decision = QuestionRoutingDecision(
             answer_mode="synthesis" if should_use_generative else "extractive",
             reason=(
                 "Question spans multiple facets; route to grounded synthesis when a local model is configured."
@@ -465,14 +465,47 @@ def route_question(
             context_count=context_count,
             should_use_generative=should_use_generative,
         )
+    else:
+        provisional_decision = QuestionRoutingDecision(
+            answer_mode="extractive",
+            reason="Question looks like a single-fact lookup with adequate evidence coverage.",
+            facet_count=facet_count,
+            context_count=context_count,
+            should_use_generative=False,
+        )
 
-    return QuestionRoutingDecision(
-        answer_mode="extractive",
-        reason="Question looks like a single-fact lookup with adequate evidence coverage.",
-        facet_count=facet_count,
-        context_count=context_count,
-        should_use_generative=False,
-    )
+    if should_use_generative and _should_run_unsupported_classifier(
+        question=question,
+        facets=facets,
+        contexts=contexts,
+    ):
+        support_classification = _classify_question_support_with_provider(
+            question=question,
+            contexts=contexts,
+            provider=answer_provider,
+        )
+        if support_classification is not None:
+            is_supported, rationale = support_classification
+            if not is_supported:
+                reason = "Local unsupported classifier rejected the available evidence."
+                if rationale:
+                    reason = f"{reason} {rationale}"
+                return QuestionRoutingDecision(
+                    answer_mode="unsupported",
+                    reason=reason,
+                    facet_count=facet_count,
+                    context_count=context_count,
+                    should_use_generative=False,
+                )
+            return replace(
+                provisional_decision,
+                reason=(
+                    f"{provisional_decision.reason} "
+                    "Local unsupported classifier found enough evidence coverage."
+                ),
+            )
+
+    return provisional_decision
 
 
 def ask_question(
@@ -1263,6 +1296,34 @@ def build_grounded_synthesis_prompt(
         "- Combine multiple chunks when needed, but do not add outside facts.\n"
         "- If any requested facet lacks support, reply exactly with INSUFFICIENT_SUPPORT.\n"
         "- Prefer a short direct answer over repeating the context.\n"
+    )
+
+
+def build_unsupported_classification_prompt(
+    *,
+    question: str,
+    contexts: list[RetrievedChunkContext],
+) -> str:
+    evidence_blocks = []
+    for context in contexts:
+        label = (
+            f"Document: {context.document_title or context.document_filename} | "
+            f"Pages: {context.page_start}-{context.page_end} | "
+            f"Chunk: {context.chunk_index} | Score: {context.score:.4f}"
+        )
+        evidence_blocks.append(f"{label}\n{context.text}")
+
+    joined_evidence = "\n\n---\n\n".join(evidence_blocks)
+    return (
+        f"Question: {question}\n\n"
+        "Evidence:\n"
+        f"{joined_evidence}\n\n"
+        "Instructions:\n"
+        "- Decide whether the evidence is sufficient to answer the full question.\n"
+        "- Mark it UNSUPPORTED if any requested facet, constraint, number, date, or entity detail is missing.\n"
+        "- Do not infer from nearby or partially matching evidence.\n"
+        "- Reply on the first line with exactly SUPPORTED or UNSUPPORTED.\n"
+        "- Reply on the second line with a brief reason.\n"
     )
 
 
@@ -2239,7 +2300,7 @@ def _split_support_units(answer_text: str) -> list[str]:
     return support_units
 
 
-def _parse_claim_verification_response(text: str) -> tuple[bool, str] | None:
+def _parse_supported_or_unsupported_response(text: str) -> tuple[bool, str] | None:
     normalized_text = text.strip()
     if not normalized_text:
         return None
@@ -2254,6 +2315,30 @@ def _parse_claim_verification_response(text: str) -> tuple[bool, str] | None:
     if verdict.startswith("UNSUPPORTED"):
         return False, " ".join(lines[1:]).strip()
     return None
+
+
+def _classify_question_support_with_provider(
+    *,
+    question: str,
+    contexts: list[RetrievedChunkContext],
+    provider: OpenAICompatibleAnswerProvider,
+) -> tuple[bool, str] | None:
+    if not contexts:
+        return False, "No evidence was available to classify."
+
+    verifier_response = provider.complete(
+        system_prompt=(
+            "You decide whether retrieved document evidence is sufficient to answer a question. "
+            "Be conservative. If any required facet or material constraint is missing, mark it unsupported."
+        ),
+        user_prompt=build_unsupported_classification_prompt(
+            question=question,
+            contexts=contexts,
+        ),
+    )
+    if not verifier_response:
+        return None
+    return _parse_supported_or_unsupported_response(verifier_response)
 
 
 def _verify_claim_with_provider(
@@ -2276,7 +2361,7 @@ def _verify_claim_with_provider(
     )
     if not verifier_response:
         return None
-    return _parse_claim_verification_response(verifier_response)
+    return _parse_supported_or_unsupported_response(verifier_response)
 
 
 def verify_answer_claims(
@@ -2565,6 +2650,25 @@ def _retrieval_support_is_too_weak(
     if _question_has_numeric_intent(question) and not any(re.search(r"\d", context.text) for context in contexts):
         return True
     return False
+
+
+def _should_run_unsupported_classifier(
+    *,
+    question: str,
+    facets: list[QuestionFacet],
+    contexts: list[RetrievedChunkContext],
+) -> bool:
+    if len(facets) > 1:
+        return True
+    if _question_has_numeric_intent(question) or has_explicit_date(question):
+        return True
+    if any(facet.constraint_terms for facet in facets):
+        return True
+    if not contexts:
+        return False
+
+    top_context_score = max(context.score for context in contexts)
+    return top_context_score < 0.72
 
 
 def _anchor_support_score(

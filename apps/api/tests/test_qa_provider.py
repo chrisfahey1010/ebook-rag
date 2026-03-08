@@ -2,11 +2,14 @@ import json
 
 from ebook_rag_api.services.qa import (
     OpenAICompatibleAnswerProvider,
+    QuestionFacet,
     RetrievedChunkContext,
+    _should_run_unsupported_classifier,
     assemble_answer_contexts,
     build_claim_verification_prompt,
     build_qa_prompt,
     build_grounded_synthesis_prompt,
+    build_unsupported_classification_prompt,
     extract_chat_completion_delta,
     extract_chat_completion_text,
     route_question,
@@ -133,6 +136,29 @@ def test_build_claim_verification_prompt_requests_supported_or_unsupported() -> 
     assert "Reply on the first line with exactly SUPPORTED or UNSUPPORTED." in prompt
 
 
+def test_build_unsupported_classification_prompt_requires_full_question_support() -> None:
+    prompt = build_unsupported_classification_prompt(
+        question="What should happen before launch and after landing?",
+        contexts=[
+            RetrievedChunkContext(
+                chunk_id="chunk-1",
+                document_id="doc-1",
+                document_title="Launch Manual",
+                document_filename="launch.pdf",
+                chunk_index=0,
+                page_start=3,
+                page_end=3,
+                text="Inspect the fuel lines before launch.",
+                score=0.92,
+            )
+        ],
+    )
+
+    assert "Decide whether the evidence is sufficient to answer the full question." in prompt
+    assert "Mark it UNSUPPORTED if any requested facet" in prompt
+    assert "Reply on the first line with exactly SUPPORTED or UNSUPPORTED." in prompt
+
+
 def test_extract_chat_completion_text_handles_string_and_list_content() -> None:
     assert (
         extract_chat_completion_text(
@@ -237,6 +263,7 @@ def test_route_question_prefers_synthesis_for_multi_facet_questions() -> None:
         temperature=0.0,
         max_tokens=200,
     )
+    provider.complete = lambda **kwargs: "SUPPORTED\nBoth requested facets are covered."  # type: ignore[method-assign]
     decision = route_question(
         question="What should happen before launch and after landing?",
         contexts=[
@@ -257,6 +284,71 @@ def test_route_question_prefers_synthesis_for_multi_facet_questions() -> None:
 
     assert decision.answer_mode == "synthesis"
     assert decision.should_use_generative is True
+
+
+def test_should_run_unsupported_classifier_skips_high_confidence_simple_lookup() -> None:
+    should_run = _should_run_unsupported_classifier(
+        question="What is the widget?",
+        facets=[
+            QuestionFacet(
+                text="What is the widget?",
+                terms={"widget"},
+                anchor_terms={"widget"},
+                constraint_terms=set(),
+            )
+        ],
+        contexts=[
+            RetrievedChunkContext(
+                chunk_id="chunk-1",
+                document_id="doc-1",
+                document_title="Launch Manual",
+                document_filename="launch.pdf",
+                chunk_index=0,
+                page_start=3,
+                page_end=3,
+                text="Inspect the fuel lines before launch.",
+                score=0.91,
+            )
+        ],
+    )
+
+    assert should_run is False
+
+
+def test_route_question_returns_unsupported_when_classifier_vetoes_generation() -> None:
+    provider = OpenAICompatibleAnswerProvider(
+        base_url="http://localhost:11434/v1",
+        api_key="secret",
+        model="llama3.2",
+        timeout_seconds=5.0,
+        temperature=0.0,
+        max_tokens=200,
+    )
+    provider.complete = (  # type: ignore[method-assign]
+        lambda **kwargs: "UNSUPPORTED\nThe evidence mentions launch but not landing."
+    )
+
+    decision = route_question(
+        question="What should happen before launch and after landing?",
+        contexts=[
+            RetrievedChunkContext(
+                chunk_id="chunk-1",
+                document_id="doc-1",
+                document_title="Launch Manual",
+                document_filename="launch.pdf",
+                chunk_index=0,
+                page_start=3,
+                page_end=3,
+                text="Inspect the fuel lines before launch. Deploy the parachute after landing.",
+                score=0.91,
+            )
+        ],
+        answer_provider=provider,
+    )
+
+    assert decision.answer_mode == "unsupported"
+    assert decision.should_use_generative is False
+    assert "unsupported classifier rejected" in decision.reason.lower()
 
 
 def test_verify_answer_claims_returns_per_claim_support_details() -> None:
