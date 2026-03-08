@@ -381,17 +381,18 @@ As of March 8, 2026, the first pass of that slice has landed in code:
 - the web UI now exposes active embedding, reranker, and answer runtime details
 - the OpenAI-compatible QA path now includes a dedicated unsupported-classification prompt before generation on higher-risk questions such as multi-facet, numeric/date-constrained, and lower-confidence retrieval cases
 - the QA finalization path can now salvage partially supported generated answers by rewriting or trimming them down to verified supported claims before falling back to `unsupported`
+- the QA finalization path now also applies a stricter acceptance gate for constrained numeric/date questions so repaired answers still have to clear citation-backed facet coverage and exact-value alignment checks before they survive
 
 That means the next follow-up work should narrow to:
 
 1. refresh benchmark artifacts and remove any remaining overstated quality claims
-2. benchmark the new router/support thresholds against Amazon and the stable regression suites
-3. tune and benchmark the new partial-answer repair path on Amazon and other citation-sensitive suites
+2. benchmark the new router/support thresholds and stricter final acceptance gate against Amazon and the stable regression suites
+3. inspect any remaining Amazon misses with the richer QA trace before deciding whether the next fix belongs in answer postprocessing or citation selection
 
 The latest implementation follow-up for that slice should now be:
 
 1. use the richer QA trace fields to inspect router support scores, unsupported-classifier decisions, question-coverage scores, and repair outcomes on each benchmark miss
-2. keep the stricter question-coverage threshold for constrained numeric/date questions so partially supported financial answers fall back to `unsupported` instead of surviving repair
+2. keep the stricter final acceptance gate for constrained numeric/date questions so partially supported financial answers fall back to `unsupported` instead of surviving repair
 3. rerun `amazon_earnings` plus the stable gating suites and treat any new regressions as answer-layer bugs first, not retrieval-tuning invitations
 
 ## Resolved decisions

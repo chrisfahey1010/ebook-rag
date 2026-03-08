@@ -2640,10 +2640,15 @@ def _finalize_generated_answer(
             supported_claim_count=verification.supported_claim_count,
         ),
     )
-    if (
-        support_score >= support_threshold
-        and question_coverage_score >= support_threshold
-        and verification.verified
+    if _answer_clears_acceptance_gate(
+        question=question,
+        facets=facets,
+        answer_text=finalized_answer.answer_text,
+        citations=finalized_answer.citations,
+        support_score=support_score,
+        question_coverage_score=question_coverage_score,
+        verification=verification,
+        support_threshold=support_threshold,
     ):
         return finalized_answer
 
@@ -2767,9 +2772,16 @@ def _repair_partially_supported_answer(
         + repaired_verification.average_claim_score * 0.6,
     )
     if (
-        repaired_support_score < support_threshold
-        or repaired_question_coverage < support_threshold
-        or not repaired_verification.verified
+        not _answer_clears_acceptance_gate(
+            question=question,
+            facets=facets,
+            answer_text=repaired_text,
+            citations=repaired_citations,
+            support_score=repaired_support_score,
+            question_coverage_score=repaired_question_coverage,
+            verification=repaired_verification,
+            support_threshold=support_threshold,
+        )
     ):
         return None
 
@@ -2852,6 +2864,79 @@ def _question_support_threshold(question: str, facets: list[QuestionFacet]) -> f
     return 0.58 if _question_requires_strict_support(question, facets) else 0.45
 
 
+def _answer_clears_acceptance_gate(
+    *,
+    question: str,
+    facets: list[QuestionFacet],
+    answer_text: str,
+    citations: list[RetrievedChunkContext],
+    support_score: float,
+    question_coverage_score: float,
+    verification: AnswerVerification,
+    support_threshold: float,
+) -> bool:
+    if (
+        support_score < support_threshold
+        or question_coverage_score < support_threshold
+        or not verification.verified
+    ):
+        return False
+
+    if not _question_requires_strict_support(question, facets):
+        return True
+
+    citation_support_score = _compute_question_support_score(
+        question=question,
+        facets=facets,
+        contexts=citations,
+    )
+    if citation_support_score < _strict_question_citation_threshold(question, facets):
+        return False
+
+    minimum_facet_score = _minimum_question_facet_support_score(
+        question=question,
+        answer_text=answer_text,
+        citations=citations,
+    )
+    if minimum_facet_score < _minimum_facet_support_threshold(question, facets):
+        return False
+
+    if _question_requires_exact_value_support(question):
+        exact_value_score = _exact_value_alignment_score(
+            answer_text=answer_text,
+            citations=citations,
+        )
+        if exact_value_score < 0.85:
+            return False
+
+    return True
+
+
+def _strict_question_citation_threshold(
+    question: str,
+    facets: list[QuestionFacet],
+) -> float:
+    threshold = _question_support_threshold(question, facets)
+    if len(facets) > 1:
+        return min(0.84, threshold + 0.08)
+    if _question_requires_exact_value_support(question):
+        return min(0.8, threshold + 0.06)
+    return min(0.78, threshold + 0.04)
+
+
+def _minimum_facet_support_threshold(
+    question: str,
+    facets: list[QuestionFacet],
+) -> float:
+    if len(facets) > 1:
+        return 0.52
+    if _question_requires_exact_value_support(question):
+        return 0.62
+    if _question_requires_strict_support(question, facets):
+        return 0.48
+    return 0.0
+
+
 def _question_metric_support_score(*, question: str, texts: list[str]) -> float:
     if not texts:
         return 0.0
@@ -2885,6 +2970,41 @@ def _compute_question_coverage_score(
         if any(re.search(r"\d", text) for text in support_texts)
         else 0.0
     )
+    facet_scores = _compute_facet_support_scores(facets=facets, support_terms=support_terms)
+    facet_score = sum(facet_scores) / len(facet_scores) if facet_scores else 0.0
+    return min(
+        1.0,
+        facet_score * 0.65
+        + metric_support * 0.2
+        + numeric_support * 0.15,
+    )
+
+
+def _minimum_question_facet_support_score(
+    *,
+    question: str,
+    answer_text: str,
+    citations: list[RetrievedChunkContext],
+) -> float:
+    facets = _build_question_facets(question)
+    if not facets:
+        return 0.0
+
+    support_terms = _tokenize(answer_text)
+    for citation in citations:
+        support_terms.update(_tokenize(citation.text))
+
+    facet_scores = _compute_facet_support_scores(facets=facets, support_terms=support_terms)
+    if not facet_scores:
+        return 0.0
+    return min(facet_scores)
+
+
+def _compute_facet_support_scores(
+    *,
+    facets: list[QuestionFacet],
+    support_terms: set[str],
+) -> list[float]:
     facet_scores: list[float] = []
     for facet in facets:
         facet_terms = facet.terms | facet.anchor_terms | facet.constraint_terms
@@ -2912,14 +3032,7 @@ def _compute_question_coverage_score(
                 + constraint_score * 0.25,
             )
         )
-
-    facet_score = sum(facet_scores) / len(facet_scores) if facet_scores else 0.0
-    return min(
-        1.0,
-        facet_score * 0.65
-        + metric_support * 0.2
-        + numeric_support * 0.15,
-    )
+    return facet_scores
 
 
 def _compute_support_score(
@@ -2953,6 +3066,39 @@ def _compute_support_score(
         + min(average_citation_score, 1.0) * 0.15
         + citation_count_bonus * 0.1,
     )
+
+
+def _question_requires_exact_value_support(question: str) -> bool:
+    lowered = question.lower().strip()
+    return lowered.startswith(("when ", "how many", "how much", "how fast")) or _question_seeks_exact_metric_value(
+        question
+    )
+
+
+def _extract_normalized_numeric_values(text: str) -> set[str]:
+    return {
+        match.group(0).replace("$", "").replace("%", "").replace(",", "").strip()
+        for match in re.finditer(r"\$?\d[\d,]*(?:\.\d+)?%?", text)
+    }
+
+
+def _exact_value_alignment_score(
+    *,
+    answer_text: str,
+    citations: list[RetrievedChunkContext],
+) -> float:
+    answer_values = _extract_normalized_numeric_values(answer_text)
+    if not answer_values:
+        return 0.0
+
+    citation_values = set().union(
+        *(_extract_normalized_numeric_values(citation.text) for citation in citations)
+    )
+    if not citation_values:
+        return 0.0
+
+    matched_values = answer_values & citation_values
+    return len(matched_values) / len(answer_values)
 
 
 def _compute_question_support_score(

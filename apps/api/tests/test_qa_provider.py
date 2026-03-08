@@ -522,6 +522,153 @@ def test_finalize_generated_answer_returns_unsupported_when_repair_is_still_weak
     assert finalized.postprocess.repair_applied is False
 
 
+def test_finalize_generated_answer_rejects_partial_repair_for_multi_facet_numeric_question() -> None:
+    capex_context = RetrievedChunkContext(
+        chunk_id="chunk-2",
+        document_id="doc-1",
+        document_title="Earnings",
+        document_filename="earnings.pdf",
+        chunk_index=2,
+        page_start=2,
+        page_end=2,
+        text="We expect to invest about $200 billion in capital expenditures across Amazon in 2026.",
+        score=0.93,
+    )
+
+    finalized = _finalize_generated_answer(
+        answer=GeneratedAnswer(
+            answer_text=(
+                "AWS sales grew 24% year-over-year in the fourth quarter of 2025. "
+                "Amazon expects to invest about $200 billion in capital expenditures in 2026."
+            ),
+            supported=True,
+            citations=[capex_context],
+            answer_mode="synthesis",
+        ),
+        question=(
+            "How fast did AWS sales grow in the fourth quarter of 2025, "
+            "and how much capital expenditure does Amazon expect in 2026?"
+        ),
+        contexts=[capex_context],
+        fallback_mode="synthesis",
+    )
+
+    assert finalized.supported is False
+    assert finalized.answer_mode == "unsupported"
+    assert finalized.postprocess is not None
+    assert finalized.postprocess.repair_attempted is True
+    assert finalized.postprocess.repair_applied is False
+
+
+def test_finalize_generated_answer_rejects_wrong_exact_numeric_value() -> None:
+    context = RetrievedChunkContext(
+        chunk_id="chunk-13",
+        document_id="doc-1",
+        document_title="Earnings",
+        document_filename="earnings.pdf",
+        chunk_index=13,
+        page_start=13,
+        page_end=13,
+        text=(
+            "Q4 2025\n"
+            "Employees (full-time and part-time; excludes contractors & temporary personnel)\n"
+            "1,576,000"
+        ),
+        score=0.96,
+    )
+
+    finalized = _finalize_generated_answer(
+        answer=GeneratedAnswer(
+            answer_text="Amazon reported 1,577,000 employees in Q4 2025.",
+            supported=True,
+            citations=[context],
+            answer_mode="synthesis",
+        ),
+        question="How many employees did Amazon report in Q4 2025?",
+        contexts=[context],
+        fallback_mode="synthesis",
+    )
+
+    assert finalized.supported is False
+    assert finalized.answer_mode == "unsupported"
+    assert finalized.verification is not None
+    assert finalized.postprocess is not None
+    assert finalized.postprocess.repair_attempted is True
+    assert finalized.postprocess.repair_applied is False
+
+
+def test_finalize_generated_answer_accepts_correct_exact_numeric_value() -> None:
+    context = RetrievedChunkContext(
+        chunk_id="chunk-13",
+        document_id="doc-1",
+        document_title="Earnings",
+        document_filename="earnings.pdf",
+        chunk_index=13,
+        page_start=13,
+        page_end=13,
+        text=(
+            "Q4 2025\n"
+            "Employees (full-time and part-time; excludes contractors & temporary personnel)\n"
+            "1,576,000"
+        ),
+        score=0.96,
+    )
+
+    finalized = _finalize_generated_answer(
+        answer=GeneratedAnswer(
+            answer_text="Amazon reported 1,576,000 employees in Q4 2025.",
+            supported=True,
+            citations=[context],
+            answer_mode="synthesis",
+        ),
+        question="How many employees did Amazon report in Q4 2025?",
+        contexts=[context],
+        fallback_mode="synthesis",
+    )
+
+    assert finalized.supported is True
+    assert finalized.answer_mode == "synthesis"
+    assert finalized.verification is not None
+    assert finalized.verification.verified is True
+
+
+def test_finalize_generated_answer_rejects_wrong_exact_date_value() -> None:
+    context = RetrievedChunkContext(
+        chunk_id="chunk-1",
+        document_id="doc-1",
+        document_title="Earnings",
+        document_filename="earnings.pdf",
+        chunk_index=1,
+        page_start=1,
+        page_end=1,
+        text=(
+            "AMAZON.COM ANNOUNCES FOURTH QUARTER RESULTS\n"
+            "SEATTLE February 5, 2026 Amazon.com, Inc. today announced financial results "
+            "for its fourth quarter ended December 31, 2025."
+        ),
+        score=0.95,
+    )
+
+    finalized = _finalize_generated_answer(
+        answer=GeneratedAnswer(
+            answer_text="Amazon announced the fourth quarter results on February 6, 2026.",
+            supported=True,
+            citations=[context],
+            answer_mode="synthesis",
+        ),
+        question="When did Amazon announce these fourth quarter results?",
+        contexts=[context],
+        fallback_mode="synthesis",
+    )
+
+    assert finalized.supported is False
+    assert finalized.answer_mode == "unsupported"
+    assert finalized.verification is not None
+    assert finalized.postprocess is not None
+    assert finalized.postprocess.repair_attempted is True
+    assert finalized.postprocess.repair_applied is False
+
+
 def test_openai_compatible_provider_maps_insufficient_support(monkeypatch) -> None:
     fake_client = _FakeClient(
         {"choices": [{"message": {"content": "INSUFFICIENT_SUPPORT"}}]}
