@@ -33,7 +33,7 @@ The main gap is that several critical pieces are still baseline implementations:
   - the `hells_angels.pdf` long-form benchmark now passes on retrieval hit rate, citation hit rate, answer match rate, support accuracy, and unsupported precision
   - the repo now also includes `amazon_earnings_eval.json`, which exercises `amazon_quarterly_earnings2025Q4.pdf` as a shorter real-world financial-report benchmark
   - the latest QA passes improved structured-numeric citation evidence coverage on that Amazon benchmark, fixed the prior `net sales` versus `operating income` guidance confusion, closed the exploratory employee-count row on page 13 by recovering split same-page table rows, and taught the extractive scorer to prefer the exact page-11 free-cash-flow metric row over the narrative page-2 summary for exact-value questions
-  - the March 8, 2026 excerpt-normalization pass then promoted the page-11 free-cash-flow row and the page-13 employee-count row into the gating lane, so the remaining Amazon-specific gap is now the broader multi-snippet narrative citation-evidence check for the "why did free cash flow decrease" question rather than the table-row exact-value cases
+  - the March 8, 2026 citation-assembly pass closed the remaining Amazon-specific narrative citation-evidence gap for the "why did free cash flow decrease" question, so the benchmark now clears its current gating lane end to end
   - further retrieval tuning should be driven by new benchmark coverage or clear regressions, not by open-ended score chasing
 - context assembly is improved and benchmark-informed, but still heuristic
 - changing embedding dimensions now requires a migration plus document reprocessing, so the reindex workflow needs to stay explicit in docs and tooling
@@ -388,18 +388,14 @@ The project should be considered V1 complete when all of the following are true:
 
 The best next coding slice is now:
 
-1. close the remaining Amazon narrative citation-evidence miss
-   - keep using `amazon_earnings_eval.json` as the regression harness for earnings-release-style documents
-   - the remaining failure is the "Why did free cash flow decrease for the trailing twelve months ended December 31, 2025?" excerpt-evidence check, where the cited text still omits the secondary supporting snippet about artificial-intelligence investment
-   - focus on multi-snippet citation assembly or excerpt stitching for narrative answers instead of more table-row tuning
-2. keep broadening the benchmark set with more real-document fixtures
+1. keep broadening the benchmark set with more real-document fixtures
    - add harder multi-page citation and unsupported-answer cases beyond the current curated, `hells_angels`, and Amazon earnings coverage
    - reduce dependence on synthetic fixtures when judging chunking or retrieval changes
-3. keep refining which excerpt-level checks should be gating versus exploratory
-   - the Amazon free-cash-flow and employee-count table rows are now stable enough to gate
+2. keep refining which excerpt-level checks should be gating versus exploratory
+   - the Amazon earnings benchmark now clears its current gating lane, including the prior multi-snippet narrative citation case
    - continue using the gating lane only for repeatable excerpt checks, especially on long-form documents
-4. close the remaining Milestone 1/7 documentation gap
+3. close the remaining Milestone 1/7 documentation gap
    - document recommended local embedding, reranker, and generation model combinations more explicitly
    - keep fully local, mixed, and hosted OpenAI-compatible setups easy to discover from the docs
 
-The chunking decision itself is now benchmark-backed for the current fixture set, normalization now preserves heading blocks while collapsing soft-wrapped body lines more cleanly, chunk provenance now includes character-span offsets for page-local inspection, and the benchmark workflow now distinguishes page-level citation success from excerpt-level citation accuracy. On the March 8, 2026 run after the excerpt-normalization pass, the Amazon earnings benchmark reports `answer_match_rate=0.9`, `citation_hit_rate=1.0`, `citation_evidence_hit_rate=0.9`, `support_accuracy=1.0`, and `unsupported_precision=1.0`, while holding `gating_citation_evidence_hit_rate=0.9`. The page-11 free-cash-flow row and the page-13 employee-count row now pass in the gating lane, which confirms that the table-row exact-value path is stable enough to regress on directly. The next step should stay focused on the remaining multi-snippet narrative citation-evidence gap, while continuing to expand real-document benchmark breadth and keeping the gating lane limited to repeatable excerpt-level checks.
+The chunking decision itself is now benchmark-backed for the current fixture set, normalization now preserves heading blocks while collapsing soft-wrapped body lines more cleanly, chunk provenance now includes character-span offsets for page-local inspection, and the benchmark workflow now distinguishes page-level citation success from excerpt-level citation accuracy. On the March 8, 2026 run after the citation-assembly pass, the Amazon earnings benchmark reports `answer_match_rate=1.0`, `citation_hit_rate=1.0`, `citation_evidence_hit_rate=1.0`, `support_accuracy=1.0`, and `unsupported_precision=1.0`, while holding `gating_citation_evidence_hit_rate=1.0`. The page-11 free-cash-flow row, the page-13 employee-count row, and the narrative free-cash-flow explanation now all pass in the gating lane. The next step should shift back to expanding real-document benchmark breadth and keeping the gating lane limited to repeatable excerpt-level checks.

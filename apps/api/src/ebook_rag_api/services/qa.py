@@ -31,7 +31,7 @@ from ebook_rag_api.services.text import (
 )
 
 SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
-CLAUSE_SPLIT_RE = re.compile(r"(?<=[,;:])\s+|\s+(?:and|but|while|then)\s+", re.IGNORECASE)
+CLAUSE_SPLIT_RE = re.compile(r"(?<=[,;:])\s+|\s+(?:but|while|then)\s+", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -126,6 +126,10 @@ class ExtractiveAnswerProvider:
         )
         if not selected_candidates:
             return _unsupported_answer()
+        selected_candidates = _expand_selected_candidates_for_explanation(
+            question=question,
+            selected_candidates=selected_candidates,
+        )
         if not _answer_has_sufficient_support(
             question_facets=question_facets,
             selected_candidates=selected_candidates,
@@ -929,8 +933,10 @@ def select_evidence_citations(
 ) -> list[RetrievedChunkContext]:
     citations: list[RetrievedChunkContext] = []
     seen_chunk_ids: set[str] = set()
+    citation_indexes_by_chunk_id: dict[str, int] = {}
     support_units = _split_support_units(answer_text)
     period_headers_by_page = _collect_page_period_headers(contexts)
+    max_citations = 3
     for index, support_unit in enumerate(support_units):
         ranked = _rank_evidence_contexts(
             answer_text=support_unit,
@@ -943,10 +949,37 @@ def select_evidence_citations(
             continue
         _, context = ranked[0]
         if context.chunk_id in seen_chunk_ids:
+            citation_index = citation_indexes_by_chunk_id[context.chunk_id]
+            citations[citation_index] = _merge_evidence_contexts(
+                citations[citation_index],
+                context,
+            )
             continue
         citations.append(context)
         seen_chunk_ids.add(context.chunk_id)
-        if len(citations) == min(3, max(len(support_units), 1)):
+        citation_indexes_by_chunk_id[context.chunk_id] = len(citations) - 1
+        if len(citations) >= max_citations:
+            break
+        for supplemental_context in _select_supplemental_evidence_contexts(
+            answer_text=support_unit,
+            question_text=question_text,
+            primary_context=context,
+            ranked_contexts=ranked[1:],
+            seen_chunk_ids=seen_chunk_ids,
+        ):
+            if supplemental_context.chunk_id in seen_chunk_ids:
+                citation_index = citation_indexes_by_chunk_id[supplemental_context.chunk_id]
+                citations[citation_index] = _merge_evidence_contexts(
+                    citations[citation_index],
+                    supplemental_context,
+                )
+                continue
+            citations.append(supplemental_context)
+            seen_chunk_ids.add(supplemental_context.chunk_id)
+            citation_indexes_by_chunk_id[supplemental_context.chunk_id] = len(citations) - 1
+            if len(citations) >= max_citations:
+                break
+        if len(citations) >= max_citations:
             break
 
     if citations:
@@ -1040,6 +1073,90 @@ def _rank_evidence_contexts(
         )
     )
     return ranked
+
+
+def _merge_evidence_contexts(
+    existing_context: RetrievedChunkContext,
+    new_context: RetrievedChunkContext,
+) -> RetrievedChunkContext:
+    existing_text = existing_context.text.strip()
+    new_text = new_context.text.strip()
+    normalized_existing_text = normalize_query_text(existing_text).casefold()
+    normalized_new_text = normalize_query_text(new_text).casefold()
+    if not new_text or new_text.casefold() == existing_text.casefold():
+        return existing_context
+    if normalized_new_text in normalized_existing_text:
+        return existing_context
+    if normalized_existing_text in normalized_new_text:
+        return replace(existing_context, text=new_text)
+    merged_text = f"{existing_text} {new_text}".strip()
+    return replace(existing_context, text=merged_text)
+
+
+def _select_supplemental_evidence_contexts(
+    *,
+    answer_text: str,
+    question_text: str,
+    primary_context: RetrievedChunkContext,
+    ranked_contexts: list[tuple[float, RetrievedChunkContext]],
+    seen_chunk_ids: set[str],
+) -> list[RetrievedChunkContext]:
+    if not _support_unit_may_need_multi_snippet(answer_text=answer_text, question_text=question_text):
+        return []
+
+    primary_terms = _tokenize(primary_context.text)
+    answer_terms = _tokenize(answer_text)
+    distinctive_terms = (
+        answer_terms
+        | extract_anchor_terms(question_text)
+        | extract_constraint_terms(question_text)
+        | extract_named_subject_terms(question_text)
+    )
+    missing_terms = distinctive_terms - primary_terms
+    if len(missing_terms) < 2:
+        return []
+
+    supplements: list[RetrievedChunkContext] = []
+    primary_score = max(primary_context.score, 0.01)
+    for ranked_score, candidate in ranked_contexts:
+        if candidate.chunk_id in seen_chunk_ids:
+            continue
+        if candidate.document_id != primary_context.document_id:
+            continue
+        if candidate.page_start != primary_context.page_start or candidate.page_end != primary_context.page_end:
+            continue
+
+        candidate_terms = _tokenize(candidate.text)
+        added_missing_terms = missing_terms & candidate_terms
+        if len(added_missing_terms) < 2:
+            continue
+        if ranked_score + 0.35 < primary_score:
+            continue
+
+        supplements.append(candidate)
+        missing_terms -= candidate_terms
+        if len(missing_terms) < 2 or len(supplements) == 1:
+            break
+
+    return supplements
+
+
+def _support_unit_may_need_multi_snippet(*, answer_text: str, question_text: str) -> bool:
+    lowered_question = question_text.lower()
+    lowered_answer = answer_text.lower()
+    if lowered_question.startswith("why ") or " why " in lowered_question:
+        return True
+    return any(
+        marker in lowered_answer
+        for marker in (
+            "because",
+            "due to",
+            "driven",
+            "reflects",
+            "resulted from",
+            "as a result",
+        )
+    )
 
 
 def _build_evidence_excerpt(
@@ -1162,6 +1279,20 @@ def _trim_span_to_support(*, answer_text: str, question_text: str, span: str) ->
     if best_score == 0 and not phrase_match:
         return span
     best_index = clauses.index(best_clause)
+    if _support_unit_may_need_multi_snippet(answer_text=answer_text, question_text=question_text):
+        selected_clause_indexes = [best_index]
+        covered_terms = answer_terms & _tokenize(best_clause)
+        for neighbor_index in (best_index - 1, best_index + 1):
+            if neighbor_index < 0 or neighbor_index >= len(clauses):
+                continue
+            neighbor_clause = clauses[neighbor_index]
+            added_terms = (answer_terms - covered_terms) & _tokenize(neighbor_clause)
+            if len(added_terms) < 2:
+                continue
+            selected_clause_indexes.append(neighbor_index)
+            covered_terms |= _tokenize(neighbor_clause)
+        if len(selected_clause_indexes) > 1:
+            return ", ".join(clauses[index] for index in sorted(selected_clause_indexes))
     if best_index > 0:
         previous_clause = clauses[best_index - 1]
         previous_overlap = len(answer_terms & _tokenize(previous_clause))
@@ -1412,6 +1543,120 @@ def _select_answer_sentences(
         return [sentence_candidates[0]]
 
     return []
+
+
+def _expand_selected_candidates_for_explanation(
+    *,
+    question: str,
+    selected_candidates: list[SentenceCandidate],
+) -> list[SentenceCandidate]:
+    if not _question_prefers_explanatory_followup(question):
+        return selected_candidates
+
+    expanded_candidates: list[SentenceCandidate] = []
+    for candidate in selected_candidates:
+        expanded_candidates.append(
+            _expand_candidate_with_followup_sentence(
+                question=question,
+                candidate=candidate,
+            )
+        )
+    return expanded_candidates
+
+
+def _question_prefers_explanatory_followup(question: str) -> bool:
+    lowered_question = question.lower()
+    return lowered_question.startswith("why ") or " why " in lowered_question
+
+
+def _expand_candidate_with_followup_sentence(
+    *,
+    question: str,
+    candidate: SentenceCandidate,
+) -> SentenceCandidate:
+    context_sentences = _split_sentences(candidate.context.text)
+    if not context_sentences:
+        return candidate
+
+    candidate_sentences = _split_sentences(candidate.sentence)
+    if not candidate_sentences:
+        return candidate
+
+    start_index = _find_sentence_sequence(
+        sentences=context_sentences,
+        target_sentences=candidate_sentences,
+    )
+    if start_index is None:
+        return candidate
+
+    next_index = start_index + len(candidate_sentences)
+    if next_index >= len(context_sentences):
+        return candidate
+
+    next_sentence = context_sentences[next_index]
+    if not _is_explanatory_followup_sentence(
+        question=question,
+        current_text=candidate.sentence,
+        next_sentence=next_sentence,
+    ):
+        return candidate
+
+    expanded_sentence = f"{candidate.sentence} {next_sentence}".strip()
+    return replace(
+        candidate,
+        sentence=expanded_sentence,
+        terms=_tokenize(expanded_sentence),
+    )
+
+
+def _find_sentence_sequence(
+    *,
+    sentences: list[str],
+    target_sentences: list[str],
+) -> int | None:
+    normalized_targets = [_normalize_text_unit(sentence) for sentence in target_sentences]
+    if not normalized_targets:
+        return None
+
+    for index in range(len(sentences) - len(target_sentences) + 1):
+        normalized_slice = [
+            _normalize_text_unit(sentence)
+            for sentence in sentences[index : index + len(target_sentences)]
+        ]
+        if normalized_slice == normalized_targets:
+            return index
+    return None
+
+
+def _normalize_text_unit(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+def _is_explanatory_followup_sentence(
+    *,
+    question: str,
+    current_text: str,
+    next_sentence: str,
+) -> bool:
+    if not _question_prefers_explanatory_followup(question):
+        return False
+
+    lowered_current = current_text.lower()
+    lowered_next = next_sentence.lower()
+    if not any(
+        marker in lowered_next
+        for marker in ("reflects", "because", "due to", "driven", "resulted", "as a result")
+    ):
+        return False
+    if not any(
+        marker in lowered_next
+        for marker in ("this ", "these ", "the increase", "increase ", "primarily")
+    ):
+        return False
+
+    current_terms = _tokenize(current_text)
+    next_terms = _tokenize(next_sentence)
+    return len(next_terms - current_terms) >= 2
 
 
 def _select_best_candidate_for_facet(

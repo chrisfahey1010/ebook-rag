@@ -699,6 +699,107 @@ def test_select_evidence_citations_use_question_terms_to_break_page_ties() -> No
     assert citations[0].page_start == 11
 
 
+def test_select_evidence_citations_add_same_page_supplemental_excerpt_for_why_answer() -> None:
+    primary_context = RetrievedChunkContext(
+        chunk_id="chunk-1",
+        document_id="doc-1",
+        document_title="Earnings",
+        document_filename="earnings.pdf",
+        chunk_index=1,
+        page_start=2,
+        page_end=2,
+        text=(
+            "Free cash flow decreased to $11.2 billion for the trailing twelve months, "
+            "driven primarily by a year-over-year increase of $50.7 billion in purchases "
+            "of property and equipment, net of proceeds from sales and incentives."
+        ),
+        token_estimate=33,
+        score=0.95,
+        rerank_score=0.95,
+    )
+    supplemental_context = RetrievedChunkContext(
+        chunk_id="chunk-2",
+        document_id="doc-1",
+        document_title="Earnings",
+        document_filename="earnings.pdf",
+        chunk_index=2,
+        page_start=2,
+        page_end=2,
+        text=(
+            "This increase primarily reflects investments in artificial intelligence "
+            "infrastructure and higher capacity build-out."
+        ),
+        token_estimate=16,
+        score=0.9,
+        rerank_score=0.9,
+    )
+    other_page_context = RetrievedChunkContext(
+        chunk_id="chunk-3",
+        document_id="doc-1",
+        document_title="Earnings",
+        document_filename="earnings.pdf",
+        chunk_index=3,
+        page_start=3,
+        page_end=3,
+        text="Capital expenditures are expected to rise in 2026.",
+        token_estimate=9,
+        score=0.88,
+        rerank_score=0.88,
+    )
+
+    citations = select_evidence_citations(
+        answer_text=(
+            "Free cash flow decreased because purchases of property and equipment increased, "
+            "primarily reflecting investments in artificial intelligence."
+        ),
+        contexts=[primary_context, supplemental_context, other_page_context],
+        primary_context=primary_context,
+        question_text="Why did free cash flow decrease for the trailing twelve months ended December 31, 2025?",
+    )
+
+    assert [citation.chunk_id for citation in citations] == ["chunk-1", "chunk-2"]
+    combined_text = " ".join(citation.text.lower() for citation in citations)
+    assert "purchases of property and equipment" in combined_text
+    assert "investments in artificial intelligence" in combined_text
+
+
+def test_select_evidence_citations_merge_multiple_support_units_from_same_chunk() -> None:
+    context = RetrievedChunkContext(
+        chunk_id="chunk-1",
+        document_id="doc-1",
+        document_title="Earnings",
+        document_filename="earnings.pdf",
+        chunk_index=1,
+        page_start=2,
+        page_end=2,
+        text=(
+            "Free cash flow decreased to $11.2 billion for the trailing twelve months, "
+            "driven primarily by a year-over-year increase of $50.7 billion in purchases "
+            "of property and equipment, net of proceeds from sales and incentives. "
+            "This increase primarily reflects investments in artificial intelligence."
+        ),
+        token_estimate=41,
+        score=0.95,
+        rerank_score=0.95,
+    )
+
+    citations = select_evidence_citations(
+        answer_text=(
+            "Free cash flow decreased to $11.2 billion for the trailing twelve months, "
+            "driven primarily by a year-over-year increase of $50.7 billion in purchases of "
+            "property and equipment, net of proceeds from sales and incentives. "
+            "This increase primarily reflects investments in artificial intelligence."
+        ),
+        contexts=[context],
+        primary_context=context,
+        question_text="Why did free cash flow decrease for the trailing twelve months ended December 31, 2025?",
+    )
+
+    assert len(citations) == 1
+    assert "purchases of property and equipment" in citations[0].text.lower()
+    assert "investments in artificial intelligence" in citations[0].text.lower()
+
+
 def test_extractive_provider_prefers_date_bearing_sentence_for_when_questions() -> None:
     provider = ExtractiveAnswerProvider()
     contexts = [
@@ -1151,7 +1252,8 @@ def test_extractive_provider_keeps_narrative_explanation_for_why_question() -> N
             "months, compared with $115.9 billion for the trailing twelve months ended "
             "December 31, 2024. Free cash flow decreased to $11.2 billion for the trailing "
             "twelve months, driven primarily by a year-over-year increase of $50.7 billion "
-            "in purchases of property and equipment, net of proceeds from sales and incentives."
+            "in purchases of property and equipment, net of proceeds from sales and incentives. "
+            "This increase primarily reflects investments in artificial intelligence infrastructure."
         ),
         token_estimate=84,
         score=0.95,
@@ -1192,6 +1294,7 @@ def test_extractive_provider_keeps_narrative_explanation_for_why_question() -> N
     assert answer.supported is True
     assert "driven primarily" in answer.answer_text.lower()
     assert "purchases of property and equipment" in answer.answer_text.lower()
+    assert "investments in artificial intelligence" in answer.answer_text.lower()
     assert answer.citations
     assert answer.citations[0].page_start == 2
 

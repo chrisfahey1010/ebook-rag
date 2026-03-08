@@ -119,6 +119,7 @@ Current implementation includes:
 - extractive QA scoring that now prefers exact metric lookup rows over broader narrative summaries when both are retrieved for the same financial question
 - sentence-level evidence excerpts for returned citations
 - per-answer-sentence citation attribution instead of mirroring the whole selected context window
+- merged same-chunk evidence excerpts for multi-sentence answers when support spans multiple answer sentences
 - question-aware citation ranking that breaks evidence ties using anchor terms, constraints, answer-type cues, and narrower page spans
 - pluggable QA providers, including a local extractive fallback and an OpenAI-compatible adapter
 - retrieval debug route and browser-side candidate inspector
@@ -135,7 +136,7 @@ Current limitations:
 - context assembly is still heuristic even though answer traces now separate selected context from cited evidence
 - the long-document benchmark now has better unsupported-answer rejection, less metadata/front-matter confusion, and stronger date-specific citation tie-breaking, but it still misses some exact-page citation targets and page-local fact questions on long books
 - nickname-specific and some page-local/date-specific questions in the long-document benchmark can still retrieve the right neighborhood but choose the wrong sentence or citation page
-- the benchmark suite now includes a shorter real-world Amazon earnings benchmark in addition to the curated and `hells_angels` cases; the March 8, 2026 excerpt-normalization pass promoted the page-11 free-cash-flow row and the page-13 employee-count row into the gating lane, but one broader multi-snippet financial-report citation-evidence case still misses on excerpt completeness rather than page selection
+- the benchmark suite now includes a shorter real-world Amazon earnings benchmark in addition to the curated and `hells_angels` cases; as of the March 8, 2026 citation-assembly pass it now clears the current gating checks, so the main remaining risk there is benchmark breadth rather than the prior multi-snippet narrative miss
 
 ## API snapshot
 
@@ -212,7 +213,7 @@ For page-local citation regression coverage, there is also a focused benchmark w
 uv run python scripts/run_eval.py --benchmark benchmarks/citation_granularity_eval.json
 ```
 
-That fixture keeps excerpt-accuracy checks in the gating lane, while selected `hells_angels` excerpt checks are marked exploratory so they surface long-form citation drift without blocking every merge. The aggregate citation-evidence metric still appears in reports, but `--fail-on-regression` gates on the explicit regression lane rather than exploratory excerpt misses. The Amazon earnings benchmark adds another real-document regression harness; on the March 8, 2026 run after the excerpt-normalization pass it reports `answer_match_rate=0.9`, `citation_hit_rate=1.0`, `citation_evidence_hit_rate=0.9`, `gating_citation_evidence_hit_rate=0.9`, and `unsupported_precision=1.0`. The page-11 free-cash-flow row and the page-13 employee-count row now pass in the gating lane; the remaining miss there is the narrative "why did free cash flow decrease" citation-evidence check, which still wants a fuller multi-snippet excerpt.
+That fixture keeps excerpt-accuracy checks in the gating lane, while selected `hells_angels` excerpt checks are marked exploratory so they surface long-form citation drift without blocking every merge. The aggregate citation-evidence metric still appears in reports, but `--fail-on-regression` gates on the explicit regression lane rather than exploratory excerpt misses. The Amazon earnings benchmark adds another real-document regression harness; on the March 8, 2026 run after the citation-assembly pass it reports `answer_match_rate=1.0`, `citation_hit_rate=1.0`, `citation_evidence_hit_rate=1.0`, `gating_citation_evidence_hit_rate=1.0`, and `unsupported_precision=1.0`. That closes the earlier narrative "why did free cash flow decrease" excerpt-evidence miss alongside the existing page-11 free-cash-flow and page-13 employee-count gating checks.
 
 For regression tracking, the benchmark runner can also persist JSON and Markdown artifacts and compare a run against a saved baseline:
 
