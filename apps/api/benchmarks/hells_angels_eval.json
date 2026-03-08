@@ -1,5 +1,8 @@
 {
   "name": "hells-angels-longform-eval",
+  "defaults": {
+    "regression_tier": "gating"
+  },
   "documents": [
     {
       "filename": "hells_angels.pdf",

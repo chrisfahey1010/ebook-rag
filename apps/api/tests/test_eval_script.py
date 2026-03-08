@@ -182,6 +182,16 @@ def test_render_markdown_report_includes_comparison_and_failures() -> None:
         "average_latency_ms": 20.0,
         "latency_p50_ms": 20.0,
         "latency_p95_ms": 28.0,
+        "document_summaries": [
+            {
+                "document": "manual.pdf",
+                "questions": 2,
+                "gating_questions": 1,
+                "exploratory_questions": 1,
+                "gating_failures": 0,
+                "exploratory_failures": 1,
+            }
+        ],
         "comparison": {
             "baseline_benchmark": "baseline",
             "baseline_generated_at": "2026-03-06T00:00:00+00:00",
@@ -218,6 +228,7 @@ def test_render_markdown_report_includes_comparison_and_failures() -> None:
 
     assert "# Benchmark Report: curated-eval" in report
     assert '"target_words": 420' in report
+    assert "manual.pdf: questions=2, gating=1 (failures=0), exploratory=1 (failures=1)" in report
     assert "Regressions detected: `yes`" in report
     assert "retrieval_hit_rate: `-0.250`" in report
     assert "citation_evidence_hit_rate: `-0.500`" in report
@@ -258,6 +269,55 @@ def test_page_expectation_hit_supports_any_and_all_matching() -> None:
         )
         is True
     )
+
+
+def test_resolve_question_case_option_prefers_question_then_document_then_benchmark() -> None:
+    run_eval = load_run_eval_module()
+
+    benchmark = {"defaults": {"regression_tier": "exploratory"}}
+    document_case = {"defaults": {"regression_tier": "gating"}}
+    question_case = {"regression_tier": "exploratory"}
+
+    assert (
+        run_eval.resolve_question_case_option(
+            benchmark=benchmark,
+            document_case=document_case,
+            question_case=question_case,
+            option_name="regression_tier",
+            default="gating",
+        )
+        == "exploratory"
+    )
+    assert (
+        run_eval.resolve_question_case_option(
+            benchmark=benchmark,
+            document_case=document_case,
+            question_case={},
+            option_name="regression_tier",
+            default="gating",
+        )
+        == "gating"
+    )
+    assert (
+        run_eval.resolve_question_case_option(
+            benchmark=benchmark,
+            document_case={},
+            question_case={},
+            option_name="regression_tier",
+            default="gating",
+        )
+        == "exploratory"
+    )
+
+
+def test_normalize_regression_tier_accepts_known_values_and_rejects_unknown_values() -> None:
+    run_eval = load_run_eval_module()
+
+    assert run_eval.normalize_regression_tier("Gating") == "gating"
+    assert run_eval.normalize_regression_tier(" exploratory ") == "exploratory"
+
+    with pytest.raises(ValueError, match="Unsupported regression_tier"):
+        run_eval.normalize_regression_tier("candidate")
 
 
 def test_text_expectation_hit_supports_any_and_all_matching() -> None:

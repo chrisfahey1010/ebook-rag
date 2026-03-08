@@ -1,5 +1,8 @@
 {
   "name": "john-deere-mower-manual-eval",
+  "defaults": {
+    "regression_tier": "gating"
+  },
   "documents": [
     {
       "filename": "john_deere_mower_manual.pdf",

@@ -1,5 +1,8 @@
 {
   "name": "curated-eval",
+  "defaults": {
+    "regression_tier": "gating"
+  },
   "documents": [
     {
       "filename": "rover-handbook.pdf",

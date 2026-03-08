@@ -41,6 +41,7 @@ The main gap is that several critical pieces are still baseline implementations:
 - ingestion is still synchronous, even though status and reprocessing APIs from the spec are now in place
 - evaluation now includes saved JSON/Markdown benchmark artifacts, baseline comparison, a broader curated local fixture, a real-book long-form benchmark, and additional debug routes
 - the local benchmark fixture set now spans book-style prose, a quarterly earnings report, an equipment manual, a long literary ebook, a technical model report, and a model/system-card style document to expand future citation and unsupported-answer coverage beyond the original book-focused cases
+- benchmark definitions now support inherited suite/document `regression_tier` defaults and benchmark reports now summarize per-document gating versus exploratory failures so the regression lane is explicit instead of implicit
 - the remaining quality risk is benchmark breadth rather than the specific long-document misses that were driving recent tuning loops
 - ingestion now persists the chunking configuration used for each document, stores per-chunk provenance metadata for debug inspection, and exposes reprocessing/status controls in the UI
 - chunk sizing is now configurable and benchmarkable through the eval runner, but the chosen defaults are still heuristic rather than benchmark-locked
@@ -279,8 +280,8 @@ This project should be able to prove quality improvements, not just demonstrate 
   - `POST /api/debug/rerank`
 - remaining:
   - keep expanding the benchmark dataset toward harder multi-page citation and unsupported-answer cases
-  - convert the newly added local PDFs into dedicated benchmark JSONs so each document class contributes repeatable regression coverage instead of only expanding the fixture pool on disk
   - keep refining which long-form citation-granularity checks should graduate from exploratory to regression-gating
+  - keep tightening benchmark-level gating/exploratory defaults so stable suites stay terse and unstable long-form suites stay explicit
 - persist or snapshot benchmark results so runs are comparable over time
 - optionally add a simple benchmark report artifact in JSON or Markdown
 
@@ -390,17 +391,16 @@ The project should be considered V1 complete when all of the following are true:
 
 The best next coding slice is now:
 
-1. calibrate the newly added real-document benchmarks
-   - run the new `john_deere_mower_manual`, `qwen3_technical_report`, `gpt-5-4_thinking_card`, and exploratory `infinite_jest` harnesses regularly
-   - tighten or reword unstable questions so the gating lane reflects repeatable regressions instead of citation-selection noise
-   - add harder multi-page citation and unsupported-answer cases only after each document family has a stable baseline
-2. keep refining which excerpt-level checks should be gating versus exploratory
-   - the Amazon earnings benchmark now clears its current gating lane, including the prior multi-snippet narrative citation case
-   - continue using the gating lane only for repeatable excerpt checks, especially on long-form documents like `hells_angels` and `infinite_jest`
+1. calibrate benchmark baselines and result artifacts
+   - save stable JSON/Markdown baseline artifacts for the new manual/report/system-card harnesses under `apps/api/benchmarks/results/`
+   - wire those saved baselines into regular `--compare-to ... --fail-on-regression` runs so regression checks stop depending on ad hoc local memory
+2. tighten the remaining unstable long-form questions
+   - keep `infinite_jest` exploratory by default
+   - continue rewording or narrowing `hells_angels` and other long-form excerpt checks before promoting them into the gating lane
 3. close the remaining Milestone 1/7 documentation gap
    - document recommended local embedding, reranker, and generation model combinations more explicitly
    - keep fully local, mixed, and hosted OpenAI-compatible setups easy to discover from the docs
 
-The chunking decision itself is now benchmark-backed for the current fixture set, normalization now preserves heading blocks while collapsing soft-wrapped body lines more cleanly, chunk provenance now includes character-span offsets for page-local inspection, and the benchmark workflow now distinguishes page-level citation success from excerpt-level citation accuracy. On the March 8, 2026 run after the citation-assembly pass, the Amazon earnings benchmark reports `answer_match_rate=1.0`, `citation_hit_rate=1.0`, `citation_evidence_hit_rate=1.0`, `support_accuracy=1.0`, and `unsupported_precision=1.0`, while holding `gating_citation_evidence_hit_rate=1.0`. The page-11 free-cash-flow row, the page-13 employee-count row, and the narrative free-cash-flow explanation now all pass in the gating lane. With the addition of `john_deere_mower_manual.pdf`, `infinite_jest.pdf`, `qwen3_technical_report.pdf`, and `gpt-5-4_thinking_card.pdf` under `apps/api/benchmarks/local/`, the next step should shift from acquiring raw fixture files to converting that broader corpus into repeatable benchmark definitions while keeping the gating lane limited to excerpt checks that stay stable across runs.
+The chunking decision itself is now benchmark-backed for the current fixture set, normalization now preserves heading blocks while collapsing soft-wrapped body lines more cleanly, chunk provenance now includes character-span offsets for page-local inspection, and the benchmark workflow now distinguishes page-level citation success from excerpt-level citation accuracy. On the March 8, 2026 run after the citation-assembly pass, the Amazon earnings benchmark reports `answer_match_rate=1.0`, `citation_hit_rate=1.0`, `citation_evidence_hit_rate=1.0`, `support_accuracy=1.0`, and `unsupported_precision=1.0`, while holding `gating_citation_evidence_hit_rate=1.0`. The page-11 free-cash-flow row, the page-13 employee-count row, and the narrative free-cash-flow explanation now all pass in the gating lane. The broader local fixture corpus is also now fully wired into dedicated benchmark definitions, and those definitions support inherited suite/document `regression_tier` defaults plus per-document failure summaries so the intended regression lane is visible in both config and reports.
 
-That benchmark-definition conversion step is now complete for those four local PDFs. The immediate follow-up is to keep the new manual/report/system-card harnesses stable enough for gating use, while leaving the long-form `infinite_jest` questions exploratory until its retrieval and citation behavior is repeatable enough to promote.
+That benchmark-definition conversion and tier-default cleanup step is now complete. The immediate follow-up is to save stable baseline artifacts for the new manual/report/system-card harnesses, keep those suites gating, and leave the long-form `infinite_jest` questions exploratory until their retrieval and citation behavior is repeatable enough to promote.

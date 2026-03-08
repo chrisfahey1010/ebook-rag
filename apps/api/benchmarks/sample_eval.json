@@ -1,5 +1,8 @@
 {
   "name": "sample-eval",
+  "defaults": {
+    "regression_tier": "gating"
+  },
   "documents": [
     {
       "filename": "field-guide.pdf",

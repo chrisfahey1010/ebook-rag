@@ -1,5 +1,8 @@
 {
   "name": "infinite-jest-eval",
+  "defaults": {
+    "regression_tier": "exploratory"
+  },
   "documents": [
     {
       "filename": "infinite_jest.pdf",

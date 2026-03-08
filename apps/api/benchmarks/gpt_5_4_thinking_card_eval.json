@@ -1,5 +1,8 @@
 {
   "name": "gpt-5-4-thinking-card-eval",
+  "defaults": {
+    "regression_tier": "gating"
+  },
   "documents": [
     {
       "filename": "gpt-5-4_thinking_card.pdf",

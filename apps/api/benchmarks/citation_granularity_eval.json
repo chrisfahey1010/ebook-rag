@@ -1,5 +1,8 @@
 {
   "name": "citation-granularity-eval",
+  "defaults": {
+    "regression_tier": "gating"
+  },
   "documents": [
     {
       "filename": "field-operations-granularity.pdf",

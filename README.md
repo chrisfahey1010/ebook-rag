@@ -137,7 +137,7 @@ Current limitations:
 - context assembly is still heuristic even though answer traces now separate selected context from cited evidence
 - the long-document benchmark now has better unsupported-answer rejection, less metadata/front-matter confusion, and stronger date-specific citation tie-breaking, but it still misses some exact-page citation targets and page-local fact questions on long books
 - nickname-specific and some page-local/date-specific questions in the long-document benchmark can still retrieve the right neighborhood but choose the wrong sentence or citation page
-- the benchmark suite now includes a broader local real-document fixture set in `apps/api/benchmarks/local/`, including `hells_angels.pdf`, `amazon_quarterly_earnings2025Q4.pdf`, `john_deere_mower_manual.pdf`, `infinite_jest.pdf`, `qwen3_technical_report.pdf`, and `gpt-5-4_thinking_card.pdf`; however, only part of that corpus is wired into dedicated benchmark JSONs today, so the main remaining risk is still benchmark breadth and coverage depth rather than the prior Amazon-specific narrative citation miss
+- the benchmark suite now includes a broader local real-document fixture set in `apps/api/benchmarks/local/`, including `hells_angels.pdf`, `amazon_quarterly_earnings2025Q4.pdf`, `john_deere_mower_manual.pdf`, `infinite_jest.pdf`, `qwen3_technical_report.pdf`, and `gpt-5-4_thinking_card.pdf`, and each of those documents is now wired into a dedicated benchmark JSON; the remaining risk is benchmark breadth, question stability, and excerpt-level gating discipline rather than fixture coverage itself
 
 ## API snapshot
 
@@ -176,7 +176,7 @@ Run the default retrieval and citation benchmark from [`apps/api`](/home/chris/r
 uv run python scripts/run_eval.py
 ```
 
-This now uses [`curated_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/curated_eval.json) by default to upload a broader curated set of local PDFs, ask benchmark questions, and print retrieval hit rate, citation hit rate, citation evidence hit rate, support accuracy, answer match rate, unsupported precision, and latency metrics. Individual questions can also declare `citation_match_mode`, `expected_citation_text_contains`, `citation_text_match_mode`, and `regression_tier` so stricter page-coverage and excerpt-accuracy expectations can be added over time. The older [`sample_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/sample_eval.json) fixture is still available if you want a smaller smoke test.
+This now uses [`curated_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/curated_eval.json) by default to upload a broader curated set of local PDFs, ask benchmark questions, and print retrieval hit rate, citation hit rate, citation evidence hit rate, support accuracy, answer match rate, unsupported precision, and latency metrics. Benchmark files can declare `defaults` at the suite or document level, and individual questions can override `citation_match_mode`, `expected_citation_text_contains`, `citation_text_match_mode`, and `regression_tier`, so stricter page-coverage and excerpt-accuracy expectations can be added without repeating the same gating/exploratory setting on every question. The older [`sample_eval.json`](/home/chris/repos/ebook-rag/apps/api/benchmarks/sample_eval.json) fixture is still available if you want a smaller smoke test.
 
 The eval runner now also supports chunking presets and explicit chunking overrides so chunk-size choices can be benchmarked directly:
 
@@ -227,7 +227,7 @@ uv run python scripts/run_eval.py --benchmark benchmarks/citation_granularity_ev
 
 That fixture keeps excerpt-accuracy checks in the gating lane, while selected `hells_angels` excerpt checks are marked exploratory so they surface long-form citation drift without blocking every merge. The aggregate citation-evidence metric still appears in reports, but `--fail-on-regression` gates on the explicit regression lane rather than exploratory excerpt misses. The Amazon earnings benchmark adds another real-document regression harness; on the March 8, 2026 run after the citation-assembly pass it reports `answer_match_rate=1.0`, `citation_hit_rate=1.0`, `citation_evidence_hit_rate=1.0`, `gating_citation_evidence_hit_rate=1.0`, and `unsupported_precision=1.0`. That closes the earlier narrative "why did free cash flow decrease" excerpt-evidence miss alongside the existing page-11 free-cash-flow and page-13 employee-count gating checks.
 
-For regression tracking, the benchmark runner can also persist JSON and Markdown artifacts and compare a run against a saved baseline:
+For regression tracking, the benchmark runner can also persist JSON and Markdown artifacts, compare a run against a saved baseline, and summarize per-document gating versus exploratory failures:
 
 ```bash
 uv run python scripts/run_eval.py \

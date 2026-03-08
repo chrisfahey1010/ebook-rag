@@ -150,6 +150,25 @@ CHUNKING_PRESETS: dict[str, dict[str, int]] = {
 }
 
 
+def resolve_question_case_option(
+    *,
+    benchmark: dict[str, Any],
+    document_case: dict[str, Any],
+    question_case: dict[str, Any],
+    option_name: str,
+    default: Any,
+) -> Any:
+    benchmark_defaults = benchmark.get("defaults", {})
+    document_defaults = document_case.get("defaults", {})
+    if option_name in question_case:
+        return question_case[option_name]
+    if option_name in document_defaults:
+        return document_defaults[option_name]
+    if option_name in benchmark_defaults:
+        return benchmark_defaults[option_name]
+    return default
+
+
 def resolve_chunking_config(args: argparse.Namespace) -> dict[str, int]:
     config = dict(CHUNKING_PRESETS[args.chunk_preset])
     if args.chunk_target_words is not None:
@@ -293,6 +312,15 @@ def percentile(values: list[float], percentile_rank: float) -> float:
     return lower_value + (upper_value - lower_value) * weight
 
 
+def normalize_regression_tier(raw_tier: Any) -> str:
+    tier = str(raw_tier).strip().casefold()
+    if tier not in {"gating", "exploratory"}:
+        raise ValueError(
+            f"Unsupported regression_tier `{raw_tier}`. Expected `gating` or `exploratory`."
+        )
+    return tier
+
+
 def build_question_result(
     *,
     document_name: str,
@@ -379,6 +407,51 @@ def summarize_results(
         if predicted_unsupported
         else None
     )
+    document_summaries: list[dict[str, Any]] = []
+    for document_name in sorted({result["document"] for result in results}):
+        document_results = [
+            result for result in results if result["document"] == document_name
+        ]
+        document_gating_results = [
+            result
+            for result in document_results
+            if result.get("regression_tier", "gating") == "gating"
+        ]
+        document_exploratory_results = [
+            result
+            for result in document_results
+            if result.get("regression_tier", "gating") == "exploratory"
+        ]
+        document_summaries.append(
+            {
+                "document": document_name,
+                "questions": len(document_results),
+                "gating_questions": len(document_gating_results),
+                "exploratory_questions": len(document_exploratory_results),
+                "gating_failures": sum(
+                    1
+                    for result in document_gating_results
+                    if not (
+                        result["retrieval_hit"]
+                        and result["citation_hit"]
+                        and result["citation_text_hit"]
+                        and result["support_hit"]
+                        and result["answer_hit"]
+                    )
+                ),
+                "exploratory_failures": sum(
+                    1
+                    for result in document_exploratory_results
+                    if not (
+                        result["retrieval_hit"]
+                        and result["citation_hit"]
+                        and result["citation_text_hit"]
+                        and result["support_hit"]
+                        and result["answer_hit"]
+                    )
+                ),
+            }
+        )
 
     return {
         "benchmark": benchmark_name,
@@ -406,6 +479,7 @@ def summarize_results(
         "expected_unsupported_count": sum(
             1 for result in results if not result["expected_supported"]
         ),
+        "document_summaries": document_summaries,
         "results": results,
     }
 
@@ -540,6 +614,20 @@ def render_markdown_report(summary: dict[str, Any]) -> str:
         f"- P50 latency: `{summary['latency_p50_ms']:.2f} ms`",
         f"- P95 latency: `{summary['latency_p95_ms']:.2f} ms`",
     ]
+
+    document_summaries = summary.get("document_summaries", [])
+    if document_summaries:
+        lines.extend(["", "## Documents", ""])
+        for document_summary in document_summaries:
+            lines.append(
+                "- "
+                + f"{document_summary['document']}: "
+                + f"questions={document_summary['questions']}, "
+                + f"gating={document_summary['gating_questions']} "
+                + f"(failures={document_summary['gating_failures']}), "
+                + f"exploratory={document_summary['exploratory_questions']} "
+                + f"(failures={document_summary['exploratory_failures']})"
+            )
 
     comparison = summary.get("comparison")
     if comparison:
@@ -811,6 +899,15 @@ def run_benchmark(
                         "citation_text_match_mode",
                         "all" if len(expected_citation_texts) > 1 else "any",
                     )
+                    regression_tier = normalize_regression_tier(
+                        resolve_question_case_option(
+                            benchmark=benchmark,
+                            document_case=document_case,
+                            question_case=question_case,
+                            option_name="regression_tier",
+                            default="gating",
+                        )
+                    )
                     results.append(
                         build_question_result(
                             document_name=document_case["filename"],
@@ -830,10 +927,7 @@ def run_benchmark(
                             ),
                             expected_citation_texts=expected_citation_texts,
                             citation_text_match_mode=citation_text_match_mode,
-                            regression_tier=question_case.get(
-                                "regression_tier",
-                                "gating",
-                            ),
+                            regression_tier=regression_tier,
                         )
                     )
 

@@ -1,5 +1,8 @@
 {
   "name": "amazon-earnings-eval",
+  "defaults": {
+    "regression_tier": "gating"
+  },
   "documents": [
     {
       "filename": "amazon_quarterly_earnings2025Q4.pdf",

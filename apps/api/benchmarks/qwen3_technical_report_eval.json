@@ -1,5 +1,8 @@
 {
   "name": "qwen3-technical-report-eval",
+  "defaults": {
+    "regression_tier": "gating"
+  },
   "documents": [
     {
       "filename": "qwen3_technical_report.pdf",
