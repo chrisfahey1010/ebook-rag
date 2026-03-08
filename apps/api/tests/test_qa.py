@@ -928,6 +928,150 @@ def test_extractive_provider_handles_employee_count_rows() -> None:
     assert "1,576,000" in answer.citations[0].text
 
 
+def test_extractive_provider_handles_flattened_employee_count_rows() -> None:
+    provider = ExtractiveAnswerProvider()
+    context = RetrievedChunkContext(
+        chunk_id="chunk-1",
+        document_id="doc-1",
+        document_title="Earnings",
+        document_filename="earnings.pdf",
+        chunk_index=13,
+        page_start=13,
+        page_end=13,
+        text=(
+            "Q3 2024\n"
+            "Q4 2024\n"
+            "Q1 2025\n"
+            "Q2 2025\n"
+            "Q3 2025\n"
+            "Q4 2025\n"
+            "Y/Y %\n"
+            "Change\n"
+            "Employees (full-time and part-time; excludes contractors & temporary personnel) "
+            "1,551,000 1,556,000 1,560,000 1,546,000 1,578,000 1,576,000 1 % "
+            "Employees (full-time and part-time; excludes contractors & temporary personnel) -- "
+            "Y/Y growth 3 % 2 % 3 % 1 % 2 % 1 %"
+        ),
+        token_estimate=52,
+        score=0.91,
+        rerank_score=0.91,
+    )
+
+    answer = provider.generate_answer(
+        question="How many employees did Amazon report in Q4 2025?",
+        contexts=[context],
+    )
+
+    assert answer.supported is True
+    assert "1,576,000" in answer.answer_text
+    assert answer.citations
+    assert "employees" in answer.citations[0].text.lower()
+    assert "q4 2025" in answer.citations[0].text.lower()
+    assert "1,576,000" in answer.citations[0].text
+
+
+def test_extractive_provider_can_reuse_same_page_headers_for_split_metric_rows() -> None:
+    provider = ExtractiveAnswerProvider()
+    header_context = RetrievedChunkContext(
+        chunk_id="chunk-1",
+        document_id="doc-1",
+        document_title="Earnings",
+        document_filename="earnings.pdf",
+        chunk_index=73,
+        page_start=13,
+        page_end=13,
+        text=(
+            "Q3 2024\n"
+            "Q4 2024\n"
+            "Q1 2025\n"
+            "Q2 2025\n"
+            "Q3 2025\n"
+            "Q4 2025\n"
+            "Y/Y %\n"
+            "Change\n"
+            "Net Sales\n"
+            "Online stores (1) $ 61,411 $ 75,556 $ 57,407 $ 61,485 $ 67,407 $ 82,988 10 %"
+        ),
+        token_estimate=44,
+        score=0.82,
+        rerank_score=0.82,
+    )
+    metric_context = RetrievedChunkContext(
+        chunk_id="chunk-2",
+        document_id="doc-1",
+        document_title="Earnings",
+        document_filename="earnings.pdf",
+        chunk_index=87,
+        page_start=13,
+        page_end=13,
+        text=(
+            "N/A\n"
+            "Employees (full-time and part-time; excludes contractors & temporary personnel) "
+            "1,551,000 1,556,000 1,560,000 1,546,000 1,578,000 1,576,000 1 % "
+            "Employees (full-time and part-time; excludes contractors & temporary personnel) -- "
+            "Y/Y growth 3 % 2 % 3 % 1 % 2 % 1 %"
+        ),
+        token_estimate=55,
+        score=0.78,
+        rerank_score=0.78,
+    )
+
+    answer = provider.generate_answer(
+        question="How many employees did Amazon report in Q4 2025?",
+        contexts=[header_context, metric_context],
+    )
+
+    assert answer.supported is True
+    assert "1,576,000" in answer.answer_text
+    assert answer.citations
+    assert answer.citations[0].page_start == 13
+    assert "employees" in answer.citations[0].text.lower()
+    assert "q4 2025" in answer.citations[0].text.lower()
+
+
+def test_extractive_provider_handles_flattened_free_cash_flow_rows() -> None:
+    provider = ExtractiveAnswerProvider()
+    context = RetrievedChunkContext(
+        chunk_id="chunk-1",
+        document_id="doc-1",
+        document_title="Earnings",
+        document_filename="earnings.pdf",
+        chunk_index=11,
+        page_start=11,
+        page_end=11,
+        text=(
+            "Q3 2024\n"
+            "Q4 2024\n"
+            "Q1 2025\n"
+            "Q2 2025\n"
+            "Q3 2025\n"
+            "Q4 2025\n"
+            "Y/Y %\n"
+            "Change\n"
+            "Purchases of property and equipment, net of proceeds from sales and incentives -- TTM "
+            "$ 64,959 $ 77,658 $ 87,978 $ 102,953 $ 115,903 $ 128,320 65 % "
+            "Free cash flow -- TTM (1) $ 47,747 $ 38,219 $ 25,925 $ 18,184 $ 14,788 $ 11,194 (71) % "
+            "Common shares and stock-based awards outstanding"
+        ),
+        token_estimate=54,
+        score=0.94,
+        rerank_score=0.94,
+    )
+
+    answer = provider.generate_answer(
+        question="What was trailing-twelve-month free cash flow in Q4 2025?",
+        contexts=[context],
+    )
+
+    assert answer.supported is True
+    assert "11,194" in answer.answer_text
+    assert "128,320" not in answer.answer_text
+    assert answer.citations
+    assert "free cash flow" in answer.citations[0].text.lower()
+    assert "q4 2025" in answer.citations[0].text.lower()
+    assert "11,194" in answer.citations[0].text
+
+
 def test_extractive_provider_prefers_requested_metric_over_results_headline() -> None:
     provider = ExtractiveAnswerProvider()
     context = RetrievedChunkContext(

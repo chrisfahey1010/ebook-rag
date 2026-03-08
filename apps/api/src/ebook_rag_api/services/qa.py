@@ -7,9 +7,11 @@ from time import perf_counter
 from typing import Protocol
 
 import httpx
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ebook_rag_api.core.config import get_settings
+from ebook_rag_api.models.document_chunk import DocumentChunk
 from ebook_rag_api.services.retrieval import ChunkSearchMatch, normalize_query, search_chunks
 from ebook_rag_api.services.text import (
     TOKEN_RE,
@@ -263,13 +265,18 @@ def ask_question_with_trace(
     )
     retrieved_at = perf_counter()
     retrieved_chunks = [build_chunk_context(match) for match in matches]
-    assembled_contexts = assemble_answer_contexts(
+    expanded_contexts = _expand_contexts_with_page_siblings(
+        session=session,
         question=normalized_question,
         contexts=retrieved_chunks,
     )
+    assembled_contexts = assemble_answer_contexts(
+        question=normalized_question,
+        contexts=expanded_contexts,
+    )
     answer_provider = get_answer_provider()
     selected_contexts = (
-        retrieved_chunks
+        expanded_contexts
         if isinstance(answer_provider, ExtractiveAnswerProvider)
         else assembled_contexts
     )
@@ -324,6 +331,82 @@ def build_chunk_context(match: ChunkSearchMatch) -> RetrievedChunkContext:
         rerank_score=match.rerank_score,
         score=match.score,
     )
+
+
+def _expand_contexts_with_page_siblings(
+    *,
+    session: Session,
+    question: str,
+    contexts: list[RetrievedChunkContext],
+) -> list[RetrievedChunkContext]:
+    if not contexts:
+        return []
+
+    expanded_by_id = {context.chunk_id: context for context in contexts}
+    question_terms = _tokenize(question)
+    question_metrics = _question_metric_phrases(question)
+
+    for context in contexts:
+        if context.page_start != context.page_end:
+            continue
+        sibling_chunks = session.execute(
+            select(DocumentChunk)
+            .where(
+                DocumentChunk.document_id == context.document_id,
+                DocumentChunk.page_start == context.page_start,
+                DocumentChunk.page_end == context.page_end,
+            )
+            .order_by(DocumentChunk.chunk_index.asc())
+        ).scalars()
+        for sibling_chunk in sibling_chunks:
+            if sibling_chunk.id in expanded_by_id:
+                continue
+            sibling_context = RetrievedChunkContext(
+                chunk_id=sibling_chunk.id,
+                document_id=sibling_chunk.document_id,
+                document_title=context.document_title,
+                document_filename=context.document_filename,
+                chunk_index=sibling_chunk.chunk_index,
+                page_start=sibling_chunk.page_start,
+                page_end=sibling_chunk.page_end,
+                text=sibling_chunk.text,
+                provenance=sibling_chunk.provenance,
+                token_estimate=sibling_chunk.token_estimate,
+                dense_score=context.dense_score,
+                lexical_score=context.lexical_score,
+                hybrid_score=context.hybrid_score,
+                rerank_score=context.rerank_score,
+                score=max(context.score - 0.04, 0.0),
+            )
+            if not _same_page_sibling_is_useful(
+                question_text=question,
+                question_terms=question_terms,
+                question_metrics=question_metrics,
+                candidate=sibling_context,
+            ):
+                continue
+            expanded_by_id[sibling_context.chunk_id] = sibling_context
+
+    return list(expanded_by_id.values())
+
+
+def _same_page_sibling_is_useful(
+    *,
+    question_text: str,
+    question_terms: set[str],
+    question_metrics: set[str],
+    candidate: RetrievedChunkContext,
+) -> bool:
+    lowered_candidate = candidate.text.lower()
+    if question_metrics:
+        return any(metric in lowered_candidate for metric in question_metrics)
+
+    candidate_terms = _tokenize(candidate.text)
+    if len(question_terms & candidate_terms) >= 3:
+        return True
+    if _question_has_numeric_intent(question_text) and len(question_terms & candidate_terms) >= 2:
+        return bool(re.search(r"\d", candidate.text))
+    return False
 
 
 def assemble_answer_contexts(
@@ -597,6 +680,9 @@ _STRUCTURED_PERIOD_LABEL_RE = re.compile(
 _STRUCTURED_VALUE_LINE_RE = re.compile(
     r"^(?:\$?\s*\(?\d[\d,.\s]*\)?(?:\s*%|\s*[A-Za-z]+(?:\s+[A-Za-z]+)*)?|\(\d[\d,.\s]*\)\s*%?)$"
 )
+_STRUCTURED_VALUE_TOKEN_RE = re.compile(
+    r"(?:\(?\d{1,3}\)?\s*%|\(?\$?\s*(?:\d{1,3}(?:,\d{3})+|\d+\.\d+|\d{3,})\)?)"
+)
 _FINANCIAL_METRIC_PHRASES = (
     "net sales",
     "operating income",
@@ -609,21 +695,44 @@ _FINANCIAL_METRIC_PHRASES = (
 _QUARTER_YEAR_RE = re.compile(r"\bq[1-4]\s+\d{4}\b", re.IGNORECASE)
 
 
-def _build_structured_metric_value_spans(lines: list[str]) -> list[str]:
-    spans: list[str] = []
-    header_lines: list[str] = []
-    header_count = 0
-    for line in lines:
-        if _STRUCTURED_PERIOD_LABEL_RE.match(line):
-            header_lines.append(line)
-            header_count += 1
+def _find_structured_period_headers(lines: list[str]) -> tuple[list[str], int]:
+    for start_index in range(len(lines)):
+        if not _STRUCTURED_PERIOD_LABEL_RE.match(lines[start_index]):
             continue
-        break
+        end_index = start_index
+        while end_index < len(lines) and _STRUCTURED_PERIOD_LABEL_RE.match(lines[end_index]):
+            end_index += 1
+        header_lines = lines[start_index:end_index]
+        if len(header_lines) >= 2:
+            return header_lines, end_index
+    return [], 0
+
+
+def _resolve_structured_period_headers(
+    lines: list[str],
+    period_headers: list[str] | None = None,
+) -> list[str]:
+    header_lines, _ = _find_structured_period_headers(lines)
+    if header_lines:
+        return header_lines
+    return period_headers or []
+
+
+def _build_structured_metric_value_spans(
+    lines: list[str],
+    *,
+    period_headers: list[str] | None = None,
+) -> list[str]:
+    spans: list[str] = []
+    header_lines, index = _find_structured_period_headers(lines)
+    if not header_lines:
+        header_lines = period_headers or []
+        index = 0
+    header_count = len(header_lines)
 
     if header_count < 2:
         return spans
 
-    index = header_count
     while index < len(lines):
         metric_line = lines[index]
         if _STRUCTURED_VALUE_LINE_RE.match(metric_line):
@@ -646,6 +755,55 @@ def _build_structured_metric_value_spans(lines: list[str]) -> list[str]:
             ):
                 spans.append(f"{metric_line} {period_label} {value}")
         index += 1
+
+    return spans
+
+
+def _extract_value_tokens(text: str, *, start_index: int = 0) -> list[str]:
+    return [match.group(0).strip() for match in _STRUCTURED_VALUE_TOKEN_RE.finditer(text, start_index)]
+
+
+def _build_flattened_metric_value_spans(
+    lines: list[str],
+    *,
+    target_metrics: list[str],
+    period_headers: list[str] | None = None,
+) -> list[str]:
+    if not target_metrics:
+        return []
+
+    spans: list[str] = []
+    header_lines = _resolve_structured_period_headers(lines, period_headers)
+    header_count = len(header_lines)
+    if header_count < 2:
+        return spans
+
+    for index, line in enumerate(lines):
+        lowered_line = line.lower()
+        for metric in target_metrics:
+            metric_start = lowered_line.find(metric)
+            if metric_start < 0:
+                continue
+            metric_end = metric_start + len(metric)
+            row_value_matches = list(_STRUCTURED_VALUE_TOKEN_RE.finditer(line, metric_end))
+            row_values = [match.group(0).strip() for match in row_value_matches]
+            metric_label = (
+                line[metric_start : row_value_matches[0].start()].strip()
+                if row_value_matches
+                else line[metric_start:].strip()
+            )
+            if len(row_values) < header_count and index + 1 < len(lines):
+                next_line_values = _extract_value_tokens(lines[index + 1])
+                if next_line_values:
+                    metric_label = line[metric_start:].strip()
+                    row_values = next_line_values
+            if len(row_values) < header_count:
+                continue
+
+            first_row_values = row_values[:header_count]
+            spans.append(f"{metric_label} {' '.join(first_row_values)}")
+            for period_label, value in zip(header_lines, first_row_values, strict=False):
+                spans.append(f"{metric_label} {period_label} {value}")
 
     return spans
 
@@ -676,15 +834,44 @@ def _looks_like_structured_numeric_block(lines: list[str]) -> bool:
     return numeric_lines >= 4 and short_lines >= len(lines) // 2 and metric_lines >= 2
 
 
-def _build_candidate_spans_from_text(text: str) -> list[str]:
+def _build_candidate_spans_from_text(
+    text: str,
+    *,
+    period_headers: list[str] | None = None,
+) -> list[str]:
     lines = _split_structured_lines(text)
-    if _looks_like_structured_numeric_block(lines):
-        structured_spans = _build_structured_metric_value_spans(lines)
+    has_period_headers = bool(_resolve_structured_period_headers(lines, period_headers))
+    if _looks_like_structured_numeric_block(lines) or has_period_headers:
+        structured_spans = _build_structured_metric_value_spans(
+            lines,
+            period_headers=period_headers,
+        )
+        structured_spans.extend(
+            _build_flattened_metric_value_spans(
+                lines,
+                target_metrics=list(_FINANCIAL_METRIC_PHRASES),
+                period_headers=period_headers,
+            )
+        )
         if structured_spans:
             return _deduplicate_text_units(structured_spans)
         return _deduplicate_text_units(_build_line_candidate_spans(lines))
     units = _build_candidate_spans(_split_sentences(text))
     return _deduplicate_text_units(units)
+
+
+def _collect_page_period_headers(
+    contexts: list[RetrievedChunkContext],
+) -> dict[tuple[str, int, int], list[str]]:
+    headers_by_page: dict[tuple[str, int, int], list[str]] = {}
+    for context in contexts:
+        page_key = (context.document_id, context.page_start, context.page_end)
+        if page_key in headers_by_page:
+            continue
+        header_lines, _ = _find_structured_period_headers(_split_structured_lines(context.text))
+        if len(header_lines) >= 2:
+            headers_by_page[page_key] = header_lines
+    return headers_by_page
 
 
 def build_qa_prompt(question: str, contexts: list[RetrievedChunkContext]) -> str:
@@ -738,12 +925,14 @@ def select_evidence_citations(
     citations: list[RetrievedChunkContext] = []
     seen_chunk_ids: set[str] = set()
     support_units = _split_support_units(answer_text)
+    period_headers_by_page = _collect_page_period_headers(contexts)
     for index, support_unit in enumerate(support_units):
         ranked = _rank_evidence_contexts(
             answer_text=support_unit,
             question_text=question_text,
             contexts=contexts,
             primary_context=primary_context if index == 0 else None,
+            period_headers_by_page=period_headers_by_page,
         )
         if not ranked:
             continue
@@ -763,6 +952,9 @@ def select_evidence_citations(
                 answer_text=answer_text,
                 question_text=question_text,
                 context=primary_context,
+                period_headers=period_headers_by_page.get(
+                    (primary_context.document_id, primary_context.page_start, primary_context.page_end)
+                ),
             )
         ]
     return []
@@ -774,6 +966,7 @@ def _rank_evidence_contexts(
     question_text: str,
     contexts: list[RetrievedChunkContext],
     primary_context: RetrievedChunkContext | None = None,
+    period_headers_by_page: dict[tuple[str, int, int], list[str]] | None = None,
 ) -> list[tuple[float, RetrievedChunkContext]]:
     answer_terms = _tokenize(answer_text)
     question_terms = _tokenize(question_text)
@@ -787,6 +980,9 @@ def _rank_evidence_contexts(
             answer_text=answer_text,
             question_text=question_text,
             context=context,
+            period_headers=(period_headers_by_page or {}).get(
+                (context.document_id, context.page_start, context.page_end)
+            ),
         )
         context_terms = _tokenize(evidence_context.text)
         overlap = len(answer_terms & context_terms)
@@ -845,8 +1041,12 @@ def _build_evidence_excerpt(
     answer_text: str,
     question_text: str,
     context: RetrievedChunkContext,
+    period_headers: list[str] | None = None,
 ) -> RetrievedChunkContext:
-    candidate_spans = _build_candidate_spans_from_text(context.text)
+    candidate_spans = _build_candidate_spans_from_text(
+        context.text,
+        period_headers=period_headers,
+    )
     if not candidate_spans:
         return context
 
@@ -1092,8 +1292,15 @@ def _build_sentence_candidates(
     contexts: list[RetrievedChunkContext],
 ) -> list[SentenceCandidate]:
     candidates: list[SentenceCandidate] = []
+    period_headers_by_page = _collect_page_period_headers(contexts)
     for context in contexts:
-        for sentence_span in _build_candidate_spans_from_text(context.text):
+        page_headers = period_headers_by_page.get(
+            (context.document_id, context.page_start, context.page_end)
+        )
+        for sentence_span in _build_candidate_spans_from_text(
+            context.text,
+            period_headers=page_headers,
+        ):
             if not sentence_span:
                 continue
             sentence_terms = _tokenize(sentence_span)
