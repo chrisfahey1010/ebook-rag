@@ -32,7 +32,7 @@ The main gap is that several critical pieces are still baseline implementations:
 - retrieval quality is now in a satisfactory V1 state on the current benchmark set:
   - the `hells_angels.pdf` long-form benchmark now passes on retrieval hit rate, citation hit rate, answer match rate, support accuracy, and unsupported precision
   - the repo now also includes `amazon_earnings_eval.json`, which exercises `amazon_quarterly_earnings2025Q4.pdf` as a shorter real-world financial-report benchmark
-  - the latest QA pass improved structured-numeric citation evidence coverage on that Amazon benchmark, but mixed-metric page disambiguation and some exploratory financial-report answer cases still lag, so the next quality pass should stay in the QA layer rather than broad retrieval changes
+  - the latest QA pass improved structured-numeric citation evidence coverage on that Amazon benchmark and fixed the prior `net sales` versus `operating income` guidance confusion, but the exploratory employee-count row on page 13 and some broader financial-report answer/citation cases still lag, so the next quality pass should stay in the QA layer rather than broad retrieval changes
   - further retrieval tuning should be driven by new benchmark coverage or clear regressions, not by open-ended score chasing
 - context assembly is improved and benchmark-informed, but still heuristic
 - changing embedding dimensions now requires a migration plus document reprocessing, so the reindex workflow needs to stay explicit in docs and tooling
@@ -387,10 +387,10 @@ The project should be considered V1 complete when all of the following are true:
 
 The best next coding slice is now:
 
-1. tighten mixed-metric financial-page answer selection
+1. close the remaining exploratory financial-row miss on the Amazon benchmark
    - keep using `amazon_earnings_eval.json` as the regression harness for earnings-release-style documents
-   - teach the extractive scorer to distinguish sibling metrics on the same page, especially `net sales` versus `operating income` and narrative versus table rows
-   - close the remaining exploratory miss on the employee-count row before promoting that case
+   - the extractive scorer now distinguishes sibling metrics on the same page, including `net sales` versus `operating income`, and prefers explicit metric-plus-period table spans when they are available
+   - the remaining QA-layer miss is the employee-count row on page 13 in the real extracted document path; close that before promoting the case
 2. promote selected exploratory citation-granularity checks into the gating lane
    - use the new excerpt-level benchmark coverage to identify stable long-form checks
    - only gate on cases that are repeatable enough to avoid noisy regressions
@@ -401,4 +401,4 @@ The best next coding slice is now:
    - document recommended local embedding, reranker, and generation model combinations more explicitly
    - keep fully local, mixed, and hosted OpenAI-compatible setups easy to discover from the docs
 
-The chunking decision itself is now benchmark-backed for the current fixture set, normalization now preserves heading blocks while collapsing soft-wrapped body lines more cleanly, chunk provenance now includes character-span offsets for page-local inspection, and the benchmark workflow now distinguishes page-level citation success from excerpt-level citation accuracy. The latest structured-numeric QA pass improved the Amazon earnings benchmark’s citation-evidence coverage from the earlier weak baseline, reaching `citation_evidence_hit_rate=0.5` and `gating_citation_evidence_hit_rate=0.625` on the March 8, 2026 run. The retriever is therefore still doing its job, but the QA layer continues to miss some metric-specific line selection cases on dense financial pages. The next step should stay focused on QA extraction quality for those passages, while continuing to graduate stable excerpt-level checks into the regression lane and expand real-document benchmark breadth.
+The chunking decision itself is now benchmark-backed for the current fixture set, normalization now preserves heading blocks while collapsing soft-wrapped body lines more cleanly, chunk provenance now includes character-span offsets for page-local inspection, and the benchmark workflow now distinguishes page-level citation success from excerpt-level citation accuracy. The latest metric-aware structured-numeric QA pass improved the Amazon earnings benchmark’s `answer_match_rate` to `0.7`, `citation_evidence_hit_rate` to `0.7`, and `gating_citation_evidence_hit_rate` to `0.875` on the March 8, 2026 run, fixing the earlier `net sales`/`operating income` guidance confusion and similar sibling-metric misses. The retriever is therefore still doing its job, but the QA layer continues to miss the exploratory employee-count row and some broader citation-granularity cases on financial pages. The next step should stay focused on QA extraction quality for those passages, while continuing to graduate stable excerpt-level checks into the regression lane and expand real-document benchmark breadth.

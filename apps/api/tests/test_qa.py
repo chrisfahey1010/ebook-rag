@@ -928,6 +928,94 @@ def test_extractive_provider_handles_employee_count_rows() -> None:
     assert "1,576,000" in answer.citations[0].text
 
 
+def test_extractive_provider_prefers_requested_metric_over_results_headline() -> None:
+    provider = ExtractiveAnswerProvider()
+    context = RetrievedChunkContext(
+        chunk_id="chunk-1",
+        document_id="doc-1",
+        document_title="Earnings",
+        document_filename="earnings.pdf",
+        chunk_index=1,
+        page_start=1,
+        page_end=1,
+        text=(
+            "AMAZON.COM ANNOUNCES FOURTH QUARTER RESULTS\n"
+            "SEATTLE February 5, 2026 Amazon.com, Inc. today announced financial results "
+            "for its fourth quarter ended December 31, 2025.\n"
+            "Net sales increased 14% to $213.4 billion in the fourth quarter, compared with "
+            "$187.8 billion in fourth quarter 2024.\n"
+            "Operating income increased to $25.0 billion in the fourth quarter, compared with "
+            "$21.2 billion in fourth quarter 2024."
+        ),
+        token_estimate=52,
+        score=0.93,
+        rerank_score=0.93,
+    )
+
+    answer = provider.generate_answer(
+        question="What were Amazon's net sales in the fourth quarter of 2025?",
+        contexts=[context],
+    )
+
+    assert answer.supported is True
+    assert "213.4 billion" in answer.answer_text
+    assert "net sales increased 14% to $213.4 billion" in answer.answer_text.lower()
+    assert "operating income" not in answer.answer_text.lower()
+    assert answer.citations
+    assert "net sales increased 14% to $213.4 billion" in answer.citations[0].text.lower()
+
+
+def test_extractive_provider_prefers_requested_metric_row_with_matching_period() -> None:
+    provider = ExtractiveAnswerProvider()
+    context = RetrievedChunkContext(
+        chunk_id="chunk-1",
+        document_id="doc-1",
+        document_title="Earnings",
+        document_filename="earnings.pdf",
+        chunk_index=13,
+        page_start=13,
+        page_end=13,
+        text=(
+            "Q3 2024\n"
+            "Q4 2024\n"
+            "Q1 2025\n"
+            "Q2 2025\n"
+            "Q3 2025\n"
+            "Q4 2025\n"
+            "Operating income\n"
+            "$ 17.4 billion\n"
+            "$ 21.2 billion\n"
+            "$ 18.4 billion\n"
+            "$ 14.7 billion\n"
+            "$ 17.4 billion\n"
+            "$ 25.0 billion\n"
+            "Employees (full-time and part-time; excludes contractors & temporary personnel)\n"
+            "1,551,000\n"
+            "1,556,000\n"
+            "1,560,000\n"
+            "1,546,000\n"
+            "1,578,000\n"
+            "1,576,000\n"
+        ),
+        token_estimate=72,
+        score=0.91,
+        rerank_score=0.91,
+    )
+
+    answer = provider.generate_answer(
+        question="How many employees did Amazon report in Q4 2025?",
+        contexts=[context],
+    )
+
+    assert answer.supported is True
+    assert "1,576,000" in answer.answer_text
+    assert "25.0 billion" not in answer.answer_text
+    assert answer.citations
+    assert "employees" in answer.citations[0].text.lower()
+    assert "q4 2025" in answer.citations[0].text.lower()
+    assert "1,576,000" in answer.citations[0].text
+
+
 def test_select_evidence_citations_prefers_numeric_guidance_line_over_nearby_metric() -> None:
     context = RetrievedChunkContext(
         chunk_id="chunk-1",

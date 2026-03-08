@@ -590,6 +590,66 @@ def _build_line_candidate_spans(lines: list[str]) -> list[str]:
     return spans
 
 
+_STRUCTURED_PERIOD_LABEL_RE = re.compile(
+    r"^(?:q[1-4]\s+\d{4}|fy\s*\d{4}|ttm|\d{4})$",
+    re.IGNORECASE,
+)
+_STRUCTURED_VALUE_LINE_RE = re.compile(
+    r"^(?:\$?\s*\(?\d[\d,.\s]*\)?(?:\s*%|\s*[A-Za-z]+(?:\s+[A-Za-z]+)*)?|\(\d[\d,.\s]*\)\s*%?)$"
+)
+_FINANCIAL_METRIC_PHRASES = (
+    "net sales",
+    "operating income",
+    "free cash flow",
+    "operating cash flow",
+    "capital expenditures",
+    "employees",
+    "aws segment sales",
+)
+_QUARTER_YEAR_RE = re.compile(r"\bq[1-4]\s+\d{4}\b", re.IGNORECASE)
+
+
+def _build_structured_metric_value_spans(lines: list[str]) -> list[str]:
+    spans: list[str] = []
+    header_lines: list[str] = []
+    header_count = 0
+    for line in lines:
+        if _STRUCTURED_PERIOD_LABEL_RE.match(line):
+            header_lines.append(line)
+            header_count += 1
+            continue
+        break
+
+    if header_count < 2:
+        return spans
+
+    index = header_count
+    while index < len(lines):
+        metric_line = lines[index]
+        if _STRUCTURED_VALUE_LINE_RE.match(metric_line):
+            index += 1
+            continue
+
+        row_values: list[str] = []
+        cursor = index + 1
+        while cursor < len(lines) and len(row_values) < header_count:
+            candidate_value = lines[cursor]
+            if not _STRUCTURED_VALUE_LINE_RE.match(candidate_value):
+                break
+            row_values.append(candidate_value)
+            cursor += 1
+
+        if len(row_values) >= header_count:
+            spans.append(" ".join([metric_line, *row_values[:header_count]]))
+            for period_label, value in zip(
+                header_lines[:header_count], row_values[:header_count], strict=False
+            ):
+                spans.append(f"{metric_line} {period_label} {value}")
+        index += 1
+
+    return spans
+
+
 def _looks_like_structured_numeric_block(lines: list[str]) -> bool:
     if len(lines) < 6:
         return False
@@ -617,10 +677,13 @@ def _looks_like_structured_numeric_block(lines: list[str]) -> bool:
 
 
 def _build_candidate_spans_from_text(text: str) -> list[str]:
-    units = _build_candidate_spans(_split_sentences(text))
     lines = _split_structured_lines(text)
     if _looks_like_structured_numeric_block(lines):
-        units.extend(_build_line_candidate_spans(lines))
+        structured_spans = _build_structured_metric_value_spans(lines)
+        if structured_spans:
+            return _deduplicate_text_units(structured_spans)
+        return _deduplicate_text_units(_build_line_candidate_spans(lines))
+    units = _build_candidate_spans(_split_sentences(text))
     return _deduplicate_text_units(units)
 
 
@@ -847,7 +910,9 @@ def _evidence_span_sort_key(
         normalized_overlap,
         constraint_overlap,
         anchor_overlap,
-        question_overlap + answer_type_bonus,
+        question_overlap
+        + answer_type_bonus
+        + _financial_metric_alignment_bonus(question_text, span),
         phrase_match,
         brevity_bonus,
     )
@@ -1082,6 +1147,7 @@ def _build_sentence_candidates(
         key=lambda candidate: (
             -candidate.score,
             -len(question_terms & candidate.terms),
+            len(candidate.terms),
             candidate.context.page_start,
             candidate.context.chunk_index,
         )
@@ -1157,6 +1223,8 @@ def _select_best_candidate_for_facet(
         )
         if facet_score < 0.2:
             continue
+        if not _candidate_satisfies_metric_requirement(facet.text, candidate.sentence):
+            continue
         if not _candidate_satisfies_anchor_requirement(
             facet=facet,
             candidate=candidate,
@@ -1181,6 +1249,7 @@ def _select_best_candidate_for_facet(
                     float(added_terms),
                     candidate.score + duplicate_penalty,
                     candidate.context.score,
+                    -float(len(candidate.terms)),
                 ),
                 candidate,
             )
@@ -1197,6 +1266,7 @@ def _select_best_candidate_for_facet(
             -item[0][3],
             -item[0][4],
             -item[0][5],
+            -item[0][6],
             item[1].context.page_start,
             item[1].context.chunk_index,
         )
@@ -1236,9 +1306,12 @@ def _score_sentence_against_text(
         + _ordered_term_bonus(prompt_text, candidate.sentence)
         + _answer_type_bonus(prompt_text, candidate.sentence)
         + _structured_numeric_bonus(prompt_text, candidate.sentence)
+        + _financial_metric_alignment_bonus(prompt_text, candidate.sentence)
+        + _temporal_alignment_bonus(prompt_text, candidate.sentence)
         + max(candidate.context.score, 0.0) * 0.15
         - metadata_noise_score(candidate.sentence) * 0.25
         - _answer_type_penalty(prompt_text, candidate.sentence)
+        - _structured_numeric_penalty(prompt_text, candidate.sentence)
     )
 
 
@@ -1326,6 +1399,14 @@ def _required_constraint_matches(constraint_terms: set[str]) -> int:
     if len(constraint_terms) == 3:
         return 2
     return max(3, ceil(len(constraint_terms) * 0.6))
+
+
+def _candidate_satisfies_metric_requirement(question_text: str, candidate_text: str) -> bool:
+    question_metrics = _question_metric_phrases(question_text)
+    if not question_metrics:
+        return True
+    lowered_candidate = candidate_text.lower()
+    return any(metric in lowered_candidate for metric in question_metrics)
 
 
 def _candidate_satisfies_anchor_requirement(
@@ -1471,6 +1552,82 @@ def _question_has_numeric_intent(question: str) -> bool:
     return any(term in lowered for term in ("percent", "sales", "income", "cash flow", "employees"))
 
 
+def _question_metric_phrases(question: str) -> set[str]:
+    lowered = question.lower()
+    return {phrase for phrase in _FINANCIAL_METRIC_PHRASES if phrase in lowered}
+
+
+def _financial_metric_alignment_bonus(question: str, text: str) -> float:
+    question_metrics = _question_metric_phrases(question)
+    if not question_metrics:
+        return 0.0
+
+    lowered_text = text.lower()
+    matched_metrics = {phrase for phrase in question_metrics if phrase in lowered_text}
+    if not matched_metrics:
+        return 0.0
+
+    bonus = min(0.34, len(matched_metrics) * 0.24)
+    if _question_has_numeric_intent(question) and re.search(r"\d", text):
+        bonus += 0.08
+    return bonus
+
+
+def _quarter_year_pairs(text: str) -> set[str]:
+    return {match.group(0).lower() for match in _QUARTER_YEAR_RE.finditer(text)}
+
+
+def _temporal_alignment_bonus(question: str, text: str) -> float:
+    question_pairs = _quarter_year_pairs(question)
+    if not question_pairs:
+        return 0.0
+    text_pairs = _quarter_year_pairs(text)
+    if not text_pairs:
+        return 0.0
+    matched_pairs = question_pairs & text_pairs
+    if not matched_pairs:
+        return 0.0
+    bonus = min(0.18, len(matched_pairs) * 0.18)
+    if len(text_pairs) == len(matched_pairs):
+        bonus += 0.06
+    return bonus
+
+
+def _structured_numeric_penalty(question: str, text: str) -> float:
+    if not _question_has_numeric_intent(question):
+        return 0.0
+
+    penalty = 0.0
+    if not re.search(r"\d", text):
+        penalty += 0.22
+
+    question_metrics = _question_metric_phrases(question)
+    if not question_metrics:
+        return penalty
+
+    lowered_text = text.lower()
+    matched_metrics = {phrase for phrase in question_metrics if phrase in lowered_text}
+    conflicting_metrics = {
+        phrase
+        for phrase in _FINANCIAL_METRIC_PHRASES
+        if phrase in lowered_text and phrase not in question_metrics
+    }
+    if not matched_metrics and conflicting_metrics:
+        penalty += 0.3
+    elif matched_metrics and conflicting_metrics:
+        penalty += 0.16
+
+    question_pairs = _quarter_year_pairs(question)
+    text_pairs = _quarter_year_pairs(text)
+    if question_pairs and len(text_pairs) > len(question_pairs):
+        penalty += min(0.24, (len(text_pairs) - len(question_pairs)) * 0.08)
+
+    numeric_token_count = sum(1 for token in TOKEN_RE.findall(text) if any(character.isdigit() for character in token))
+    if numeric_token_count > 6:
+        penalty += min(0.5, (numeric_token_count - 6) * 0.045)
+    return penalty
+
+
 def _structured_numeric_bonus(question: str, text: str) -> float:
     if not _question_has_numeric_intent(question):
         return 0.0
@@ -1554,8 +1711,10 @@ def _answer_type_bonus(question: str, text: str) -> float:
             bonus += 0.04
 
     if lowered_question.startswith("how many"):
-        if re.search(r"\b\d+\b", text.lower()):
+        if re.search(r"\b\d{1,3}(?:,\d{3})+\b", text) or re.search(r"\b\d{5,}\b", text):
             bonus += 0.22
+        elif re.search(r"\b\d+\b", text.lower()):
+            bonus += 0.06
 
     if lowered_question.startswith("where "):
         if re.search(r"\b(?:in|at|from|to|toward|towards|near|into|onto)\s+[A-Z]", text):
@@ -1575,6 +1734,9 @@ def _answer_type_penalty(question: str, text: str) -> float:
     penalty = 0.0
     if lowered_question.startswith("when ") and not has_explicit_date(text):
         penalty += 0.18 if has_temporal_marker(text) else 0.24
+    if lowered_question.startswith("how many"):
+        if not (re.search(r"\b\d{1,3}(?:,\d{3})+\b", text) or re.search(r"\b\d{5,}\b", text)):
+            penalty += 0.24
     if "nickname" in lowered_question:
         if not has_nickname_alias(text, nickname_subject_terms):
             penalty += 0.24
