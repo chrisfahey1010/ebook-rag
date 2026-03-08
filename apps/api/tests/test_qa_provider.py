@@ -4,11 +4,13 @@ from ebook_rag_api.services.qa import (
     OpenAICompatibleAnswerProvider,
     RetrievedChunkContext,
     assemble_answer_contexts,
+    build_claim_verification_prompt,
     build_qa_prompt,
     build_grounded_synthesis_prompt,
     extract_chat_completion_delta,
     extract_chat_completion_text,
     route_question,
+    verify_answer_claims,
 )
 
 
@@ -106,6 +108,29 @@ def test_build_grounded_synthesis_prompt_calls_out_multi_evidence_behavior() -> 
 
     assert "Synthesize only claims directly supported by the evidence." in prompt
     assert "If any requested facet lacks support" in prompt
+
+
+def test_build_claim_verification_prompt_requests_supported_or_unsupported() -> None:
+    prompt = build_claim_verification_prompt(
+        question="What should happen before launch?",
+        claim_text="Inspect the fuel lines before launch.",
+        citations=[
+            RetrievedChunkContext(
+                chunk_id="chunk-1",
+                document_id="doc-1",
+                document_title="Launch Manual",
+                document_filename="launch.pdf",
+                chunk_index=0,
+                page_start=3,
+                page_end=3,
+                text="Inspect the fuel lines before launch.",
+                score=0.92,
+            )
+        ],
+    )
+
+    assert "Claim: Inspect the fuel lines before launch." in prompt
+    assert "Reply on the first line with exactly SUPPORTED or UNSUPPORTED." in prompt
 
 
 def test_extract_chat_completion_text_handles_string_and_list_content() -> None:
@@ -232,6 +257,68 @@ def test_route_question_prefers_synthesis_for_multi_facet_questions() -> None:
 
     assert decision.answer_mode == "synthesis"
     assert decision.should_use_generative is True
+
+
+def test_verify_answer_claims_returns_per_claim_support_details() -> None:
+    context = RetrievedChunkContext(
+        chunk_id="chunk-1",
+        document_id="doc-1",
+        document_title="Launch Manual",
+        document_filename="launch.pdf",
+        chunk_index=0,
+        page_start=3,
+        page_end=3,
+        text="Inspect the fuel lines before launch. Deploy the parachute after landing.",
+        score=0.91,
+    )
+
+    verification = verify_answer_claims(
+        question="What should happen before launch and after landing?",
+        answer_text="Inspect the fuel lines before launch. Deploy the parachute after landing.",
+        contexts=[context],
+    )
+
+    assert verification.verified is True
+    assert verification.verifier == "heuristic"
+    assert verification.claim_count == 2
+    assert verification.supported_claim_count == 2
+    assert len(verification.claims) == 2
+    assert verification.claims[0].citations
+
+
+def test_verify_answer_claims_rejects_unsupported_claim_with_provider_check() -> None:
+    provider = OpenAICompatibleAnswerProvider(
+        base_url="http://localhost:11434/v1",
+        api_key="secret",
+        model="llama3.2",
+        timeout_seconds=5.0,
+        temperature=0.0,
+        max_tokens=200,
+    )
+    provider.complete = lambda **kwargs: "UNSUPPORTED\nThe evidence does not mention coolant pressure."  # type: ignore[method-assign]
+    context = RetrievedChunkContext(
+        chunk_id="chunk-1",
+        document_id="doc-1",
+        document_title="Launch Manual",
+        document_filename="launch.pdf",
+        chunk_index=0,
+        page_start=3,
+        page_end=3,
+        text="Inspect the fuel lines before launch.",
+        score=0.91,
+    )
+
+    verification = verify_answer_claims(
+        question="What should happen before launch?",
+        answer_text="Inspect the fuel lines before launch and check coolant pressure.",
+        contexts=[context],
+        provider=provider,
+    )
+
+    assert verification.verified is False
+    assert verification.verifier == "heuristic+llm"
+    assert verification.claims[0].supported is False
+    assert "coolant pressure" in verification.claims[0].rationale.lower()
 
 
 def test_openai_compatible_provider_maps_insufficient_support(monkeypatch) -> None:

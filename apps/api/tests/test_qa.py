@@ -65,6 +65,8 @@ def test_qa_answer_returns_grounded_answer_with_citations(
     assert payload["answer_mode"] == "extractive"
     assert payload["confidence"] > 0
     assert payload["support_score"] > 0
+    assert payload["verification"]["verified"] is True
+    assert payload["verification"]["claim_count"] >= 1
     assert "charge the rover battery" in payload["answer"].lower()
     assert payload["citations"]
     assert payload["citations"][0]["document_id"] == document_id
@@ -108,6 +110,7 @@ def test_qa_answer_returns_unsupported_when_evidence_is_missing(
     assert payload["answer_mode"] == "unsupported"
     assert payload["confidence"] > 0
     assert payload["support_score"] == 0
+    assert payload["verification"] is None
     assert "could not find enough support" in payload["answer"].lower()
     assert payload["citations"] == []
 
@@ -153,6 +156,8 @@ def test_qa_answer_can_include_trace_payload(
     assert payload["trace"]["runtime"]["embedding_provider"] == "hashing"
     assert payload["trace"]["runtime"]["reranker_provider"] == "token_overlap"
     assert payload["trace"]["runtime"]["answer_provider"] == "extractive"
+    assert payload["trace"]["verification"]["verified"] is True
+    assert payload["trace"]["verification"]["claims"][0]["citations"]
     assert payload["trace"]["retrieved_chunks"]
     assert payload["trace"]["selected_contexts"]
     assert "dense_score" in payload["trace"]["retrieved_chunks"][0]
@@ -213,6 +218,7 @@ def test_qa_answer_stream_returns_sse_events_and_final_payload(
     assert complete_payload["answer_mode"] == "extractive"
     assert "inspect the heat shield before ignition" in complete_payload["answer"].lower()
     assert complete_payload["citations"]
+    assert complete_payload["verification"]["verified"] is True
     assert complete_payload["trace"] is not None
     assert complete_payload["trace"]["answer_provider"] == "ExtractiveAnswerProvider"
     assert complete_payload["trace"]["cited_contexts"][0]["chunk_id"] == complete_payload["citations"][0]["chunk_id"]
@@ -259,6 +265,7 @@ def test_qa_answer_stream_returns_unsupported_completion_payload(
     complete_payload = events[-1][1]
     assert complete_payload["supported"] is False
     assert complete_payload["answer_mode"] == "unsupported"
+    assert complete_payload["verification"] is None
     assert "could not find enough support" in complete_payload["answer"].lower()
     assert complete_payload["citations"] == []
 

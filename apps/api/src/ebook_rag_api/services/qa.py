@@ -2,6 +2,7 @@ import re
 import json
 from collections.abc import Iterator
 from dataclasses import dataclass
+from dataclasses import field
 from dataclasses import replace
 from functools import lru_cache
 from math import ceil
@@ -63,6 +64,7 @@ class GeneratedAnswer:
     answer_mode: str = "unsupported"
     confidence: float = 0.0
     support_score: float = 0.0
+    verification: "AnswerVerification | None" = None
 
 
 @dataclass(frozen=True)
@@ -120,7 +122,29 @@ class QATrace:
     cited_contexts: list[RetrievedChunkContext]
     prompt_snapshot: str
     timings: QATimingBreakdown
+    verification: "AnswerVerification | None"
     answer: GeneratedAnswer
+
+
+@dataclass(frozen=True)
+class ClaimVerification:
+    claim_text: str
+    supported: bool
+    support_score: float
+    verifier: str
+    rationale: str
+    citations: list[RetrievedChunkContext] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class AnswerVerification:
+    verified: bool
+    verifier: str
+    claim_count: int
+    supported_claim_count: int
+    average_claim_score: float
+    minimum_claim_score: float
+    claims: list[ClaimVerification] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -501,6 +525,7 @@ def ask_question_with_trace(
                 + (answered_at - answer_started_at) * 1000
             ),
         ),
+        verification=answer.verification,
         answer=answer,
     )
     return prepared_request.normalized_question, trace
@@ -617,6 +642,11 @@ def generate_answer_for_request(prepared_request: PreparedQARequest) -> Generate
         question=prepared_request.normalized_question,
         contexts=prepared_request.selected_contexts,
         fallback_mode=routing_decision.answer_mode,
+        verification_provider=(
+            prepared_request.answer_provider
+            if isinstance(prepared_request.answer_provider, OpenAICompatibleAnswerProvider)
+            else None
+        ),
     )
 
 
@@ -1233,6 +1263,34 @@ def build_grounded_synthesis_prompt(
         "- Combine multiple chunks when needed, but do not add outside facts.\n"
         "- If any requested facet lacks support, reply exactly with INSUFFICIENT_SUPPORT.\n"
         "- Prefer a short direct answer over repeating the context.\n"
+    )
+
+
+def build_claim_verification_prompt(
+    *,
+    question: str,
+    claim_text: str,
+    citations: list[RetrievedChunkContext],
+) -> str:
+    evidence_blocks = []
+    for citation in citations:
+        label = (
+            f"Document: {citation.document_title or citation.document_filename} | "
+            f"Pages: {citation.page_start}-{citation.page_end} | "
+            f"Chunk: {citation.chunk_index} | Score: {citation.score:.4f}"
+        )
+        evidence_blocks.append(f"{label}\n{citation.text}")
+
+    joined_evidence = "\n\n---\n\n".join(evidence_blocks)
+    return (
+        f"Question: {question}\n"
+        f"Claim: {claim_text}\n\n"
+        "Evidence:\n"
+        f"{joined_evidence}\n\n"
+        "Instructions:\n"
+        "- Decide whether the claim is fully supported by the evidence.\n"
+        "- Reply on the first line with exactly SUPPORTED or UNSUPPORTED.\n"
+        "- Reply on the second line with a brief reason.\n"
     )
 
 
@@ -2181,6 +2239,142 @@ def _split_support_units(answer_text: str) -> list[str]:
     return support_units
 
 
+def _parse_claim_verification_response(text: str) -> tuple[bool, str] | None:
+    normalized_text = text.strip()
+    if not normalized_text:
+        return None
+
+    lines = [line.strip() for line in normalized_text.splitlines() if line.strip()]
+    if not lines:
+        return None
+
+    verdict = lines[0].upper()
+    if verdict.startswith("SUPPORTED"):
+        return True, " ".join(lines[1:]).strip()
+    if verdict.startswith("UNSUPPORTED"):
+        return False, " ".join(lines[1:]).strip()
+    return None
+
+
+def _verify_claim_with_provider(
+    *,
+    question: str,
+    claim_text: str,
+    citations: list[RetrievedChunkContext],
+    provider: OpenAICompatibleAnswerProvider,
+) -> tuple[bool, str] | None:
+    verifier_response = provider.complete(
+        system_prompt=(
+            "You verify whether a claim is fully supported by cited document evidence. "
+            "Be conservative. If the evidence leaves out a material detail, mark it unsupported."
+        ),
+        user_prompt=build_claim_verification_prompt(
+            question=question,
+            claim_text=claim_text,
+            citations=citations,
+        ),
+    )
+    if not verifier_response:
+        return None
+    return _parse_claim_verification_response(verifier_response)
+
+
+def verify_answer_claims(
+    *,
+    question: str,
+    answer_text: str,
+    contexts: list[RetrievedChunkContext],
+    citations: list[RetrievedChunkContext] | None = None,
+    provider: OpenAICompatibleAnswerProvider | None = None,
+) -> AnswerVerification:
+    claims = _split_support_units(answer_text)
+    if not claims:
+        return AnswerVerification(
+            verified=False,
+            verifier="heuristic",
+            claim_count=0,
+            supported_claim_count=0,
+            average_claim_score=0.0,
+            minimum_claim_score=0.0,
+            claims=[],
+        )
+
+    verification_claims: list[ClaimVerification] = []
+    verification_modes: set[str] = set()
+    citation_pool = citations or contexts
+
+    for claim_text in claims:
+        claim_citations = select_evidence_citations(
+            answer_text=claim_text,
+            contexts=citation_pool,
+            question_text=question,
+        )
+        heuristic_score = _compute_support_score(
+            question=question,
+            answer_text=claim_text,
+            citations=claim_citations,
+        )
+        heuristic_supported = heuristic_score >= 0.45
+        supported = heuristic_supported
+        verifier = "heuristic"
+        rationale = (
+            "Evidence coverage and term overlap were strong enough for this claim."
+            if supported
+            else "Evidence coverage was too weak for this claim."
+        )
+
+        if provider is not None and claim_citations:
+            provider_result = _verify_claim_with_provider(
+                question=question,
+                claim_text=claim_text,
+                citations=claim_citations,
+                provider=provider,
+            )
+            if provider_result is not None:
+                provider_supported, provider_rationale = provider_result
+                verifier = "heuristic+llm"
+                supported = heuristic_supported and provider_supported
+                rationale = provider_rationale or rationale
+                heuristic_score = (
+                    heuristic_score * 0.7
+                    + (1.0 if provider_supported else 0.0) * 0.3
+                )
+
+        verification_modes.add(verifier)
+        verification_claims.append(
+            ClaimVerification(
+                claim_text=claim_text,
+                supported=supported,
+                support_score=heuristic_score,
+                verifier=verifier,
+                rationale=rationale,
+                citations=claim_citations,
+            )
+        )
+
+    supported_claim_count = sum(1 for claim in verification_claims if claim.supported)
+    average_claim_score = sum(claim.support_score for claim in verification_claims) / len(
+        verification_claims
+    )
+    minimum_claim_score = min(claim.support_score for claim in verification_claims)
+    if verification_modes == {"heuristic"}:
+        verifier_name = "heuristic"
+    elif verification_modes == {"heuristic+llm"}:
+        verifier_name = "heuristic+llm"
+    else:
+        verifier_name = "mixed"
+
+    return AnswerVerification(
+        verified=supported_claim_count == len(verification_claims),
+        verifier=verifier_name,
+        claim_count=len(verification_claims),
+        supported_claim_count=supported_claim_count,
+        average_claim_score=average_claim_score,
+        minimum_claim_score=minimum_claim_score,
+        claims=verification_claims,
+    )
+
+
 def _generate_synthesis_answer(
     *,
     question: str,
@@ -2217,6 +2411,7 @@ def _generate_synthesis_answer(
         question=question,
         contexts=contexts,
         fallback_mode="synthesis",
+        verification_provider=provider,
     )
 
 
@@ -2226,6 +2421,7 @@ def _finalize_generated_answer(
     question: str,
     contexts: list[RetrievedChunkContext],
     fallback_mode: str,
+    verification_provider: OpenAICompatibleAnswerProvider | None = None,
 ) -> GeneratedAnswer:
     if not answer.supported or is_unsupported_answer_text(answer.answer_text):
         return _unsupported_answer(confidence=0.74, support_score=0.0)
@@ -2240,8 +2436,25 @@ def _finalize_generated_answer(
         answer_text=answer.answer_text,
         citations=citations,
     )
-    if support_score < 0.45:
-        return _unsupported_answer(confidence=0.7, support_score=support_score)
+    verification = verify_answer_claims(
+        question=question,
+        answer_text=answer.answer_text,
+        contexts=contexts,
+        citations=citations,
+        provider=verification_provider,
+    )
+    verification_score = verification.average_claim_score
+    support_score = min(
+        1.0,
+        support_score * 0.35
+        + verification_score * 0.65,
+    )
+    if support_score < 0.45 or not verification.verified:
+        return _unsupported_answer(
+            confidence=0.7,
+            support_score=support_score,
+            verification=verification,
+        )
 
     confidence = min(0.98, max(0.35, 0.45 + support_score * 0.5))
     return replace(
@@ -2250,6 +2463,7 @@ def _finalize_generated_answer(
         answer_mode=fallback_mode,
         confidence=confidence,
         support_score=support_score,
+        verification=verification,
     )
 
 
@@ -2269,6 +2483,7 @@ def _unsupported_answer(
     *,
     confidence: float = 0.72,
     support_score: float = 0.0,
+    verification: AnswerVerification | None = None,
 ) -> GeneratedAnswer:
     return GeneratedAnswer(
         answer_text=(
@@ -2280,6 +2495,7 @@ def _unsupported_answer(
         answer_mode="unsupported",
         confidence=confidence,
         support_score=support_score,
+        verification=verification,
     )
 
 

@@ -32,6 +32,7 @@ class QAResponse(BaseModel):
     answer_mode: str
     confidence: float
     support_score: float
+    verification: "QAAnswerVerification | None" = None
     citations: list[QACitation]
     retrieved_chunk_count: int
     trace: "QATrace | None" = None
@@ -79,6 +80,25 @@ class QARuntimeMetadata(BaseModel):
     answer_model: str | None
 
 
+class QAClaimVerification(BaseModel):
+    claim_text: str
+    supported: bool
+    support_score: float
+    verifier: str
+    rationale: str
+    citations: list[QATraceChunk]
+
+
+class QAAnswerVerification(BaseModel):
+    verified: bool
+    verifier: str
+    claim_count: int
+    supported_claim_count: int
+    average_claim_score: float
+    minimum_claim_score: float
+    claims: list[QAClaimVerification]
+
+
 class QATrace(BaseModel):
     answer_provider: str
     answer_mode: str
@@ -89,3 +109,4 @@ class QATrace(BaseModel):
     cited_contexts: list[QATraceChunk]
     prompt_snapshot: str
     timings: QATimingBreakdown
+    verification: QAAnswerVerification | None

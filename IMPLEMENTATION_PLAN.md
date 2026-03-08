@@ -36,7 +36,7 @@ The shortest path to completion is:
   - a strong extractive fallback
   - a thin OpenAI-compatible generative provider
 - the current generative path is a prompt wrapper, not a full grounded answer pipeline
-- unsupported-answer behavior is still fragile on harder document shapes
+- unsupported-answer behavior has improved with claim-level verification, but it is still fragile on harder document shapes
 - ingestion is still synchronous despite queue-like status objects
 - model/runtime visibility is still too implicit in the UI and docs
 - benchmark artifacts and docs have drifted from one another
@@ -170,6 +170,22 @@ This is the highest-leverage remaining engineering work.
 6. verify that each answer claim is supported by cited evidence
 7. return confidence/support metadata with citations
 
+#### Status on March 8, 2026
+
+Implemented:
+
+- question routing between extractive, synthesis, and unsupported modes
+- OpenAI-compatible grounded synthesis
+- explicit confidence/support fields on QA responses
+- claim-level answer verification with per-claim support scores and trace metadata
+- optional OpenAI-compatible local-model verification for answer claims
+
+Still missing:
+
+- task-specific unsupported-classification prompts as a first-class stage rather than a downgrade outcome
+- answer repair/rewrite behavior when only part of a generated answer is unsupported
+- stronger benchmark-driven validation that the new verifier materially improves the harder failing suites
+
 #### Concrete backend work
 
 - add a question router that distinguishes:
@@ -182,8 +198,9 @@ This is the highest-leverage remaining engineering work.
   - exact-answer extraction
   - evidence-grounded synthesis
   - unsupported classification
-- add an answer verification pass:
-  - lightweight local-model verifier or evidence-overlap verifier
+- expand the new answer verification pass:
+  - keep the current lightweight claim-level verifier
+  - benchmark and tune the optional local-model verifier on the harder unsupported/citation suites
   - reject or downgrade answers whose claims are not grounded in the cited spans
 - improve citation assembly so citations represent actual supporting spans, not just nearby chunks
 - add explicit confidence/support fields to the QA response
@@ -202,7 +219,7 @@ If the model is weak, the pipeline should degrade gracefully by routing more que
 #### Exit criteria
 
 - answers are clearly more coherent than the current extractive baseline
-- unsupported precision improves on the harder benchmarks
+- unsupported precision improves on the harder benchmarks beyond the current claim-level verification baseline
 - citations remain faithful after the new answer synthesis step
 - local generation improves quality without making the system feel untrustworthy
 
