@@ -632,6 +632,71 @@ def test_finalize_generated_answer_accepts_correct_exact_numeric_value() -> None
     assert finalized.verification.verified is True
 
 
+def test_finalize_generated_answer_accepts_exact_metric_row_answer_without_narrative_scaffolding() -> None:
+    context = RetrievedChunkContext(
+        chunk_id="chunk-45",
+        document_id="doc-1",
+        document_title="Earnings",
+        document_filename="earnings.pdf",
+        chunk_index=45,
+        page_start=11,
+        page_end=11,
+        text="Free cash flow -- TTM (1) Q4 2025 $ 11,194",
+        score=0.96,
+    )
+
+    finalized = _finalize_generated_answer(
+        answer=GeneratedAnswer(
+            answer_text="Free cash flow -- TTM (1) Q4 2025 $ 11,194.",
+            supported=True,
+            citations=[context],
+            answer_mode="extractive",
+        ),
+        question="What was trailing-twelve-month free cash flow in Q4 2025?",
+        contexts=[context],
+        fallback_mode="extractive",
+    )
+
+    assert finalized.supported is True
+    assert finalized.answer_mode == "extractive"
+    assert finalized.verification is not None
+    assert finalized.verification.verified is True
+
+
+def test_finalize_generated_answer_accepts_exact_employee_row_answer_without_company_name() -> None:
+    context = RetrievedChunkContext(
+        chunk_id="chunk-84",
+        document_id="doc-1",
+        document_title="Earnings",
+        document_filename="earnings.pdf",
+        chunk_index=84,
+        page_start=13,
+        page_end=13,
+        text="Employees (full-time and part-time; excludes contractors & temporary personnel) Q4 2025 1,576,000",
+        score=0.96,
+    )
+
+    finalized = _finalize_generated_answer(
+        answer=GeneratedAnswer(
+            answer_text=(
+                "Employees (full-time and part-time; excludes contractors & temporary personnel) "
+                "Q4 2025 1,576,000."
+            ),
+            supported=True,
+            citations=[context],
+            answer_mode="extractive",
+        ),
+        question="How many employees did Amazon report in Q4 2025?",
+        contexts=[context],
+        fallback_mode="extractive",
+    )
+
+    assert finalized.supported is True
+    assert finalized.answer_mode == "extractive"
+    assert finalized.verification is not None
+    assert finalized.verification.verified is True
+
+
 def test_finalize_generated_answer_rejects_wrong_exact_date_value() -> None:
     context = RetrievedChunkContext(
         chunk_id="chunk-1",

@@ -744,15 +744,20 @@ def expand_contexts_with_page_siblings(
 
     for context in contexts:
         if context.page_start != context.page_end:
-            continue
+            if not _question_seeks_exact_metric_value(question):
+                continue
         sibling_chunks = session.execute(
             select(DocumentChunk)
             .where(
                 DocumentChunk.document_id == context.document_id,
-                DocumentChunk.page_start == context.page_start,
-                DocumentChunk.page_end == context.page_end,
+                DocumentChunk.page_start <= context.page_end,
+                DocumentChunk.page_end >= context.page_start,
             )
-            .order_by(DocumentChunk.chunk_index.asc())
+            .order_by(
+                DocumentChunk.page_start.asc(),
+                DocumentChunk.page_end.asc(),
+                DocumentChunk.chunk_index.asc(),
+            )
         ).scalars()
         for sibling_chunk in sibling_chunks:
             if sibling_chunk.id in expanded_by_id:
@@ -796,6 +801,14 @@ def _same_page_sibling_is_useful(
     lowered_candidate = candidate.text.lower()
     if question_metrics:
         return any(metric in lowered_candidate for metric in question_metrics)
+
+    if (
+        _question_seeks_exact_metric_value(question_text)
+        and (_quarter_year_pairs(candidate.text) or _mentions_trailing_twelve_months(candidate.text))
+    ):
+        candidate_terms = _tokenize(candidate.text)
+        if question_terms & candidate_terms:
+            return True
 
     candidate_terms = _tokenize(candidate.text)
     if len(question_terms & candidate_terms) >= 3:
@@ -1262,16 +1275,27 @@ def _build_candidate_spans_from_text(
 
 def _collect_page_period_headers(
     contexts: list[RetrievedChunkContext],
-) -> dict[tuple[str, int, int], list[str]]:
-    headers_by_page: dict[tuple[str, int, int], list[str]] = {}
+) -> dict[tuple[str, int], list[str]]:
+    headers_by_page: dict[tuple[str, int], list[str]] = {}
     for context in contexts:
-        page_key = (context.document_id, context.page_start, context.page_end)
-        if page_key in headers_by_page:
-            continue
         header_lines, _ = _find_structured_period_headers(_split_structured_lines(context.text))
         if len(header_lines) >= 2:
-            headers_by_page[page_key] = header_lines
+            for page_number in range(context.page_start, context.page_end + 1):
+                page_key = (context.document_id, page_number)
+                headers_by_page.setdefault(page_key, header_lines)
     return headers_by_page
+
+
+def _period_headers_for_context(
+    *,
+    period_headers_by_page: dict[tuple[str, int], list[str]],
+    context: RetrievedChunkContext,
+) -> list[str] | None:
+    for page_number in range(context.page_start, context.page_end + 1):
+        headers = period_headers_by_page.get((context.document_id, page_number))
+        if headers:
+            return headers
+    return None
 
 
 def build_prompt_for_routing(
@@ -1555,8 +1579,9 @@ def select_evidence_citations(
                 answer_text=answer_text,
                 question_text=question_text,
                 context=primary_context,
-                period_headers=period_headers_by_page.get(
-                    (primary_context.document_id, primary_context.page_start, primary_context.page_end)
+                period_headers=_period_headers_for_context(
+                    period_headers_by_page=period_headers_by_page,
+                    context=primary_context,
                 ),
             )
         ]
@@ -1569,7 +1594,7 @@ def _rank_evidence_contexts(
     question_text: str,
     contexts: list[RetrievedChunkContext],
     primary_context: RetrievedChunkContext | None = None,
-    period_headers_by_page: dict[tuple[str, int, int], list[str]] | None = None,
+    period_headers_by_page: dict[tuple[str, int], list[str]] | None = None,
 ) -> list[tuple[float, RetrievedChunkContext]]:
     answer_terms = _tokenize(answer_text)
     question_terms = _tokenize(question_text)
@@ -1583,8 +1608,9 @@ def _rank_evidence_contexts(
             answer_text=answer_text,
             question_text=question_text,
             context=context,
-            period_headers=(period_headers_by_page or {}).get(
-                (context.document_id, context.page_start, context.page_end)
+            period_headers=_period_headers_for_context(
+                period_headers_by_page=period_headers_by_page or {},
+                context=context,
             ),
         )
         context_terms = _tokenize(evidence_context.text)
@@ -2005,8 +2031,9 @@ def _build_sentence_candidates(
     candidates: list[SentenceCandidate] = []
     period_headers_by_page = _collect_page_period_headers(contexts)
     for context in contexts:
-        page_headers = period_headers_by_page.get(
-            (context.document_id, context.page_start, context.page_end)
+        page_headers = _period_headers_for_context(
+            period_headers_by_page=period_headers_by_page,
+            context=context,
         )
         for sentence_span in _build_candidate_spans_from_text(
             context.text,
@@ -2885,6 +2912,19 @@ def _answer_clears_acceptance_gate(
     if not _question_requires_strict_support(question, facets):
         return True
 
+    if _question_requires_exact_value_support(question):
+        exact_value_score = _exact_value_alignment_score(
+            answer_text=answer_text,
+            citations=citations,
+        )
+        if exact_value_score < 0.85:
+            return False
+        if _is_single_facet_exact_metric_lookup(question=question, facets=facets):
+            return _exact_metric_lookup_citation_supports_question(
+                question=question,
+                citations=citations,
+            )
+
     citation_support_score = _compute_question_support_score(
         question=question,
         facets=facets,
@@ -2900,14 +2940,6 @@ def _answer_clears_acceptance_gate(
     )
     if minimum_facet_score < _minimum_facet_support_threshold(question, facets):
         return False
-
-    if _question_requires_exact_value_support(question):
-        exact_value_score = _exact_value_alignment_score(
-            answer_text=answer_text,
-            citations=citations,
-        )
-        if exact_value_score < 0.85:
-            return False
 
     return True
 
@@ -3073,6 +3105,43 @@ def _question_requires_exact_value_support(question: str) -> bool:
     return lowered.startswith(("when ", "how many", "how much", "how fast")) or _question_seeks_exact_metric_value(
         question
     )
+
+
+def _is_single_facet_exact_metric_lookup(
+    *,
+    question: str,
+    facets: list[QuestionFacet],
+) -> bool:
+    return len(facets) == 1 and _question_seeks_exact_metric_value(question)
+
+
+def _exact_metric_lookup_citation_supports_question(
+    *,
+    question: str,
+    citations: list[RetrievedChunkContext],
+) -> bool:
+    if not citations:
+        return False
+
+    citation_texts = [citation.text for citation in citations]
+    if _question_metric_support_score(question=question, texts=citation_texts) < 1.0:
+        return False
+
+    if _question_has_numeric_intent(question) and not any(
+        re.search(r"\d", text) for text in citation_texts
+    ):
+        return False
+
+    question_pairs = _quarter_year_pairs(question)
+    if question_pairs and not any(question_pairs & _quarter_year_pairs(text) for text in citation_texts):
+        return False
+
+    if _mentions_trailing_twelve_months(question) and not any(
+        _mentions_trailing_twelve_months(text) for text in citation_texts
+    ):
+        return False
+
+    return True
 
 
 def _extract_normalized_numeric_values(text: str) -> set[str]:

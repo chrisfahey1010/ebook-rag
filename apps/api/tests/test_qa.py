@@ -2,10 +2,13 @@ import json
 
 from fastapi.testclient import TestClient
 
+from ebook_rag_api.db import Base, get_engine
+from ebook_rag_api.models import Document, DocumentChunk
 from ebook_rag_api.services.qa import (
     ExtractiveAnswerProvider,
     RetrievedChunkContext,
     assemble_answer_contexts,
+    expand_contexts_with_page_siblings,
     select_evidence_citations,
 )
 
@@ -1555,3 +1558,253 @@ def test_select_evidence_citations_prefers_numeric_guidance_line_over_nearby_met
     assert "net sales are expected to be between $173.5 billion and $178.5 billion" in (
         citations[0].text.lower()
     )
+
+
+def test_expand_contexts_with_page_siblings_includes_overlapping_metric_row_for_exact_value_question(
+    session_factory,
+) -> None:
+    Base.metadata.create_all(bind=get_engine())
+    with session_factory() as session:
+        document = Document(
+            filename="earnings.pdf",
+            original_filename="earnings.pdf",
+            title="Earnings",
+            sha256="employees-overlap-sha",
+            file_path="/tmp/earnings.pdf",
+            page_count=13,
+            status="ready",
+        )
+        session.add(document)
+        session.flush()
+
+        header_chunk = DocumentChunk(
+            document_id=document.id,
+            chunk_index=70,
+            page_start=12,
+            page_end=13,
+            text=(
+                "N/A\n"
+                "(in millions, except employee data) (unaudited)\n"
+                "Q3 2024\nQ4 2024\nQ1 2025\nQ2 2025\nQ3 2025\nQ4 2025\n"
+                "Y/Y %\nChange\nNet Sales\n"
+                "Online stores (1) $ 61,411 $ 75,556 $ 57,407 $ 61,485 $ 67,407 $ 82,988 10 %"
+            ),
+            token_estimate=40,
+        )
+        employees_chunk = DocumentChunk(
+            document_id=document.id,
+            chunk_index=87,
+            page_start=13,
+            page_end=13,
+            text=(
+                "Employees (full-time and part-time; excludes contractors & temporary personnel) "
+                "1,551,000 1,556,000 1,560,000 1,546,000 1,578,000 1,576,000 1 %"
+            ),
+            token_estimate=24,
+        )
+        session.add_all([header_chunk, employees_chunk])
+        session.commit()
+
+        expanded = expand_contexts_with_page_siblings(
+            session=session,
+            question="How many employees did Amazon report in Q4 2025?",
+            contexts=[
+                RetrievedChunkContext(
+                    chunk_id=header_chunk.id,
+                    document_id=document.id,
+                    document_title=document.title,
+                    document_filename=document.original_filename,
+                    chunk_index=header_chunk.chunk_index,
+                    page_start=header_chunk.page_start,
+                    page_end=header_chunk.page_end,
+                    text=header_chunk.text,
+                    token_estimate=header_chunk.token_estimate,
+                    score=0.82,
+                    rerank_score=0.82,
+                )
+            ],
+        )
+
+    assert {context.chunk_id for context in expanded} == {header_chunk.id, employees_chunk.id}
+
+
+def test_overlapping_metric_row_expansion_recovers_exact_table_answer(session_factory) -> None:
+    Base.metadata.create_all(bind=get_engine())
+    with session_factory() as session:
+        document = Document(
+            filename="earnings.pdf",
+            original_filename="earnings.pdf",
+            title="Earnings",
+            sha256="free-cash-flow-overlap-sha",
+            file_path="/tmp/earnings.pdf",
+            page_count=11,
+            status="ready",
+        )
+        session.add(document)
+        session.flush()
+
+        broad_table_chunk = DocumentChunk(
+            document_id=document.id,
+            chunk_index=44,
+            page_start=10,
+            page_end=11,
+            text=(
+                "LIABILITIES AND STOCKHOLDERS' EQUITY\n"
+                "(in millions, except per share data) (unaudited)\n"
+                "Q3 2024\nQ4 2024\nQ1 2025\nQ2 2025\nQ3 2025\nQ4 2025\n"
+                "Cash Flows and Shares\n"
+                "Operating cash flow -- trailing twelve months (TTM) "
+                "$ 112,706 $ 115,877 $ 113,903 $ 121,137 $ 130,691 $ 139,514 20 %"
+            ),
+            token_estimate=44,
+        )
+        exact_metric_chunk = DocumentChunk(
+            document_id=document.id,
+            chunk_index=45,
+            page_start=11,
+            page_end=11,
+            text=(
+                "Q3 2024\nQ4 2024\nQ1 2025\nQ2 2025\nQ3 2025\nQ4 2025\n"
+                "Free cash flow -- TTM (1) "
+                "$ 47,747 $ 38,219 $ 25,925 $ 18,184 $ 14,788 $ 11,194 (71) %"
+            ),
+            token_estimate=28,
+        )
+        narrative_chunk = DocumentChunk(
+            document_id=document.id,
+            chunk_index=3,
+            page_start=2,
+            page_end=3,
+            text=(
+                "Free cash flow decreased to $11.2 billion for the trailing twelve months, "
+                "driven primarily by a year-over-year increase of $50.7 billion in purchases "
+                "of property and equipment. This compares to free cash flow of $38.2 billion "
+                "for the trailing twelve months ended December 31, 2024."
+            ),
+            token_estimate=40,
+        )
+        session.add_all([broad_table_chunk, exact_metric_chunk, narrative_chunk])
+        session.commit()
+
+        expanded = expand_contexts_with_page_siblings(
+            session=session,
+            question="What was trailing-twelve-month free cash flow in Q4 2025?",
+            contexts=[
+                RetrievedChunkContext(
+                    chunk_id=broad_table_chunk.id,
+                    document_id=document.id,
+                    document_title=document.title,
+                    document_filename=document.original_filename,
+                    chunk_index=broad_table_chunk.chunk_index,
+                    page_start=broad_table_chunk.page_start,
+                    page_end=broad_table_chunk.page_end,
+                    text=broad_table_chunk.text,
+                    token_estimate=broad_table_chunk.token_estimate,
+                    score=0.95,
+                    rerank_score=0.95,
+                ),
+                RetrievedChunkContext(
+                    chunk_id=narrative_chunk.id,
+                    document_id=document.id,
+                    document_title=document.title,
+                    document_filename=document.original_filename,
+                    chunk_index=narrative_chunk.chunk_index,
+                    page_start=narrative_chunk.page_start,
+                    page_end=narrative_chunk.page_end,
+                    text=narrative_chunk.text,
+                    token_estimate=narrative_chunk.token_estimate,
+                    score=0.93,
+                    rerank_score=0.93,
+                ),
+            ],
+        )
+
+    answer = ExtractiveAnswerProvider().generate_answer(
+        question="What was trailing-twelve-month free cash flow in Q4 2025?",
+        contexts=expanded,
+    )
+
+    assert answer.supported is True
+    assert "11,194" in answer.answer_text
+    assert "38.2 billion" not in answer.answer_text
+    assert answer.citations
+    assert answer.citations[0].page_start == 11
+    assert "free cash flow" in answer.citations[0].text.lower()
+
+
+def test_overlapping_employee_row_expansion_recovers_exact_table_answer(session_factory) -> None:
+    Base.metadata.create_all(bind=get_engine())
+    with session_factory() as session:
+        document = Document(
+            filename="earnings.pdf",
+            original_filename="earnings.pdf",
+            title="Earnings",
+            sha256="employees-answer-overlap-sha",
+            file_path="/tmp/earnings.pdf",
+            page_count=13,
+            status="ready",
+        )
+        session.add(document)
+        session.flush()
+
+        header_chunk = DocumentChunk(
+            document_id=document.id,
+            chunk_index=70,
+            page_start=12,
+            page_end=13,
+            text=(
+                "N/A\n"
+                "(in millions, except employee data) (unaudited)\n"
+                "Q3 2024\nQ4 2024\nQ1 2025\nQ2 2025\nQ3 2025\nQ4 2025\n"
+                "Y/Y %\nChange\nNet Sales\n"
+                "Online stores (1) $ 61,411 $ 75,556 $ 57,407 $ 61,485 $ 67,407 $ 82,988 10 %"
+            ),
+            token_estimate=40,
+        )
+        employees_chunk = DocumentChunk(
+            document_id=document.id,
+            chunk_index=84,
+            page_start=13,
+            page_end=13,
+            text=(
+                "N/A\n"
+                "Employees (full-time and part-time; excludes contractors & temporary personnel) "
+                "1,551,000 1,556,000 1,560,000 1,546,000 1,578,000 1,576,000 1 %\n"
+                "Employees (full-time and part-time; excludes contractors & temporary personnel) -- "
+                "Y/Y growth 3 % 2 % 3 % 1 % 2 % 1 %"
+            ),
+            token_estimate=32,
+        )
+        session.add_all([header_chunk, employees_chunk])
+        session.commit()
+
+        expanded = expand_contexts_with_page_siblings(
+            session=session,
+            question="How many employees did Amazon report in Q4 2025?",
+            contexts=[
+                RetrievedChunkContext(
+                    chunk_id=header_chunk.id,
+                    document_id=document.id,
+                    document_title=document.title,
+                    document_filename=document.original_filename,
+                    chunk_index=header_chunk.chunk_index,
+                    page_start=header_chunk.page_start,
+                    page_end=header_chunk.page_end,
+                    text=header_chunk.text,
+                    token_estimate=header_chunk.token_estimate,
+                    score=0.82,
+                    rerank_score=0.82,
+                )
+            ],
+        )
+
+    answer = ExtractiveAnswerProvider().generate_answer(
+        question="How many employees did Amazon report in Q4 2025?",
+        contexts=expanded,
+    )
+
+    assert answer.supported is True
+    assert "1,576,000" in answer.answer_text
+    assert answer.citations
+    assert answer.citations[0].page_start == 13
+    assert "employees" in answer.citations[0].text.lower()

@@ -51,9 +51,10 @@ As of March 8, 2026:
   - Qwen 3 technical report: `average_latency_ms`, `latency_p50_ms`, and `latency_p95_ms`
   - GPT-5.4 thinking card: `latency_p50_ms`
 - the long-form `hells_angels` benchmark is still not V1-complete quality-wise
-- the Amazon earnings benchmark is not actually green in the current code path:
-  - the current saved March 8, 2026 artifact reports `retrieval_hit_rate=1.0`, `citation_hit_rate=0.9`, `citation_evidence_hit_rate=0.5`, `gating_citation_evidence_hit_rate=0.625`, `support_accuracy=0.9`, `answer_match_rate=0.5`, and `unsupported_precision=0.5`
-  - that directly conflicts with some README/plan claims, so the docs are overstating current quality
+- the saved March 8, 2026 Amazon earnings artifact is stale:
+  - the older saved artifact reports `retrieval_hit_rate=1.0`, `citation_hit_rate=0.9`, `citation_evidence_hit_rate=0.5`, `gating_citation_evidence_hit_rate=0.625`, `support_accuracy=0.9`, `answer_match_rate=0.5`, and `unsupported_precision=0.5`
+  - the current code path is now green on `amazon_earnings` after the exact-metric answer-layer fix, with a fresh rerun at `retrieval_hit_rate=1.0`, `citation_hit_rate=1.0`, `citation_evidence_hit_rate=1.0`, `support_accuracy=1.0`, `answer_match_rate=1.0`, and `unsupported_precision=1.0`
+  - that means the remaining benchmark-truth problem is artifact refresh and doc cleanup, not another Amazon-specific retrieval chase
 
 ## Core diagnosis
 
@@ -109,7 +110,7 @@ Current benchmark status after this cleanup:
 
 - Stable gating suites: `john_deere_mower_manual`, `qwen3_technical_report`, `gpt_5_4_thinking_card`, and `citation_granularity`
 - Exploratory long-form coverage: `infinite_jest`, plus the exploratory checks inside `hells_angels`
-- Tracked but not release-blocking: `amazon_earnings`, and the remaining long-form misses in `hells_angels`
+- Tracked but not release-blocking: the remaining long-form misses in `hells_angels`
 
 #### Exit criteria
 
@@ -192,7 +193,7 @@ Implemented:
 Still missing:
 
 - task-specific unsupported-classification prompts as a first-class stage rather than a downgrade outcome
-- stronger benchmark-driven validation that the new verifier materially improves the harder failing suites
+- stronger benchmark-driven validation that the new verifier and exact-metric acceptance rules hold across the stable gating suites, not just Amazon
 
 #### Concrete backend work
 
@@ -382,20 +383,21 @@ As of March 8, 2026, the first pass of that slice has landed in code:
 - the OpenAI-compatible QA path now includes a dedicated unsupported-classification prompt before generation on higher-risk questions such as multi-facet, numeric/date-constrained, and lower-confidence retrieval cases
 - the QA finalization path can now salvage partially supported generated answers by rewriting or trimming them down to verified supported claims before falling back to `unsupported`
 - the QA finalization path now also applies a stricter acceptance gate for constrained numeric/date questions so repaired answers still have to clear citation-backed facet coverage and exact-value alignment checks before they survive
+- the extractive answer path now expands overlapping structured table chunks, shares period headers across overlapping page ranges, and accepts verified exact-metric row answers when the cited metric, period, and value all match the question
 
 That means the next follow-up work should narrow to:
 
 1. refresh benchmark artifacts and remove any remaining overstated quality claims
-2. benchmark the new router/support thresholds and stricter final acceptance gate against Amazon and the stable regression suites
-3. inspect any remaining Amazon misses with the richer QA trace before deciding whether the next fix belongs in answer postprocessing or citation selection
+2. benchmark the new router/support thresholds and stricter final acceptance gate against the stable regression suites
+3. inspect any new benchmark misses with the richer QA trace before deciding whether the next fix belongs in answer postprocessing, citation selection, or long-form retrieval
 
 The benchmark tooling now also captures structured per-failure QA traces in saved eval artifacts, including router decisions, verification/postprocess state, retrieved/cited contexts, timings, and prompt snapshots. That means Amazon and other structured-evidence misses no longer need to be debugged only through ad hoc reruns.
 
 The latest implementation follow-up for that slice should now be:
 
-1. use the richer QA trace fields to inspect router support scores, unsupported-classifier decisions, question-coverage scores, and repair outcomes on each benchmark miss
-2. keep the stricter final acceptance gate for constrained numeric/date questions so partially supported financial answers fall back to `unsupported` instead of surviving repair
-3. rerun `amazon_earnings` plus the stable gating suites and treat any new regressions as answer-layer bugs first, not retrieval-tuning invitations
+1. refresh and commit the saved benchmark artifacts so the docs match the now-green `amazon_earnings` result
+2. rerun the stable gating suites and treat any new regressions as answer-layer bugs first, not retrieval-tuning invitations
+3. use the richer QA trace fields to inspect any remaining long-form or citation misses before touching retrieval heuristics
 
 ## Resolved decisions
 
@@ -408,5 +410,5 @@ These are the working decisions for V1:
   - Rationale: this repo is trying to become a serious local QA system, and the main missing capability is grounded answer intelligence.
   - Practical target: design around a strong small local model such as Qwen 3.5/4B, then let weaker setups fall back more often to extractive or unsupported modes.
 - Amazon and long-form book QA should not both be hard V1 release gates.
-  - Amazon earnings should remain a tracked near-term quality target because it exercises the structured, citation-sensitive failures the current system still has.
+  - Amazon earnings was the right near-term quality target because it exercised the structured, citation-sensitive failures the current system had; that suite is now green in the current code path, so the remaining tracked risk is artifact freshness plus the long-form book gaps.
   - the long-form `hells_angels` and `infinite_jest` style suites should remain explicit stretch/exploratory coverage until the new answer layer is in place and stable.
