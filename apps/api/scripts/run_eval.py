@@ -385,6 +385,41 @@ def build_question_result(
     return result
 
 
+def question_result_failed(result: dict[str, Any]) -> bool:
+    return not (
+        result["retrieval_hit"]
+        and result["citation_hit"]
+        and result["citation_text_hit"]
+        and result["support_hit"]
+        and result["answer_hit"]
+    )
+
+
+def build_failure_trace(
+    *,
+    payload: dict[str, Any],
+    trace: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "normalized_question": payload.get("normalized_question"),
+        "answer": payload.get("answer"),
+        "supported": payload.get("supported"),
+        "answer_mode": payload.get("answer_mode"),
+        "confidence": payload.get("confidence"),
+        "support_score": payload.get("support_score"),
+        "citations": payload.get("citations", []),
+        "question_router": trace.get("question_router"),
+        "runtime": trace.get("runtime"),
+        "verification": payload.get("verification") or trace.get("verification"),
+        "postprocess": trace.get("postprocess"),
+        "retrieved_chunks": trace.get("retrieved_chunks", []),
+        "selected_contexts": trace.get("selected_contexts", []),
+        "cited_contexts": trace.get("cited_contexts", []),
+        "timings": trace.get("timings"),
+        "prompt_snapshot": trace.get("prompt_snapshot"),
+    }
+
+
 def summarize_results(
     *,
     benchmark_name: str,
@@ -458,6 +493,18 @@ def summarize_results(
             }
         )
 
+    failure_results = [result for result in results if question_result_failed(result)]
+    gating_failure_results = [
+        result
+        for result in failure_results
+        if result.get("regression_tier", "gating") == "gating"
+    ]
+    exploratory_failure_results = [
+        result
+        for result in failure_results
+        if result.get("regression_tier", "gating") == "exploratory"
+    ]
+
     return {
         "benchmark": benchmark_name,
         "benchmark_path": str(benchmark_path),
@@ -484,8 +531,12 @@ def summarize_results(
         "expected_unsupported_count": sum(
             1 for result in results if not result["expected_supported"]
         ),
+        "failure_count": len(failure_results),
+        "gating_failure_count": len(gating_failure_results),
+        "exploratory_failure_count": len(exploratory_failure_results),
         "document_summaries": document_summaries,
         "results": results,
+        "failure_results": failure_results,
     }
 
 
@@ -618,6 +669,9 @@ def render_markdown_report(summary: dict[str, Any]) -> str:
         f"- Average latency: `{summary['average_latency_ms']:.2f} ms`",
         f"- P50 latency: `{summary['latency_p50_ms']:.2f} ms`",
         f"- P95 latency: `{summary['latency_p95_ms']:.2f} ms`",
+        f"- Failure count: `{summary.get('failure_count', 0)}`",
+        f"- Gating failure count: `{summary.get('gating_failure_count', 0)}`",
+        f"- Exploratory failure count: `{summary.get('exploratory_failure_count', 0)}`",
     ]
 
     document_summaries = summary.get("document_summaries", [])
@@ -657,27 +711,13 @@ def render_markdown_report(summary: dict[str, Any]) -> str:
 
     gating_failures = [
         result
-        for result in summary["results"]
-        if not (
-            result["retrieval_hit"]
-            and result["citation_hit"]
-            and result["citation_text_hit"]
-            and result["support_hit"]
-            and result["answer_hit"]
-        )
-        and result.get("regression_tier", "gating") == "gating"
+        for result in summary.get("failure_results", summary["results"])
+        if result.get("regression_tier", "gating") == "gating"
     ]
     exploratory_failures = [
         result
-        for result in summary["results"]
-        if not (
-            result["retrieval_hit"]
-            and result["citation_hit"]
-            and result["citation_text_hit"]
-            and result["support_hit"]
-            and result["answer_hit"]
-        )
-        and result.get("regression_tier", "gating") == "exploratory"
+        for result in summary.get("failure_results", summary["results"])
+        if result.get("regression_tier", "gating") == "exploratory"
     ]
     if gating_failures:
         lines.extend(["", "## Gating Failures", ""])
@@ -691,6 +731,23 @@ def render_markdown_report(summary: dict[str, Any]) -> str:
                 + f"expected_citation_text={result['expected_citation_text_contains']}, "
                 + f"latency_ms={result['latency_ms']:.2f})"
             )
+            if result.get("failure_trace"):
+                lines.append(
+                    "  trace: "
+                    + f"answer_mode={result.get('answer_mode')}, "
+                    + f"router={result.get('router_answer_mode')}, "
+                    + f"heuristic_support={format_metric(result.get('router_heuristic_support_score'))}, "
+                    + f"coverage={format_metric(result.get('question_coverage_score'))}, "
+                    + f"repair_attempted={result.get('repair_attempted')}, "
+                    + f"repair_applied={result.get('repair_applied')}"
+                )
+                if result.get("unsupported_classifier_reason"):
+                    lines.append(
+                        "  unsupported_classifier_reason: "
+                        + str(result["unsupported_classifier_reason"])
+                    )
+                if result.get("repair_reason"):
+                    lines.append("  repair_reason: " + str(result["repair_reason"]))
 
     if exploratory_failures:
         lines.extend(["", "## Exploratory Failures", ""])
@@ -704,6 +761,23 @@ def render_markdown_report(summary: dict[str, Any]) -> str:
                 + f"expected_citation_text={result['expected_citation_text_contains']}, "
                 + f"latency_ms={result['latency_ms']:.2f})"
             )
+            if result.get("failure_trace"):
+                lines.append(
+                    "  trace: "
+                    + f"answer_mode={result.get('answer_mode')}, "
+                    + f"router={result.get('router_answer_mode')}, "
+                    + f"heuristic_support={format_metric(result.get('router_heuristic_support_score'))}, "
+                    + f"coverage={format_metric(result.get('question_coverage_score'))}, "
+                    + f"repair_attempted={result.get('repair_attempted')}, "
+                    + f"repair_applied={result.get('repair_applied')}"
+                )
+                if result.get("unsupported_classifier_reason"):
+                    lines.append(
+                        "  unsupported_classifier_reason: "
+                        + str(result["unsupported_classifier_reason"])
+                    )
+                if result.get("repair_reason"):
+                    lines.append("  repair_reason: " + str(result["repair_reason"]))
 
     return "\n".join(lines) + "\n"
 
@@ -958,6 +1032,12 @@ def run_benchmark(
                             },
                         )
                     )
+                    latest_result = results[-1]
+                    if question_result_failed(latest_result):
+                        latest_result["failure_trace"] = build_failure_trace(
+                            payload=payload,
+                            trace=trace,
+                        )
 
     return summarize_results(
         benchmark_name=benchmark["name"],

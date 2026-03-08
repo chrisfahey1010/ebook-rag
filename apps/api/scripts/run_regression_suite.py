@@ -135,6 +135,7 @@ def render_suite_markdown(
                     else "- Unsupported precision: `n/a`"
                 ),
                 f"- Average latency: `{entry['summary']['average_latency_ms']:.2f} ms`",
+                f"- Failure traces captured: `{entry['summary'].get('failure_count', 0)}`",
                 f"- Latest JSON: `{entry['latest_json']}`",
                 "",
             ]

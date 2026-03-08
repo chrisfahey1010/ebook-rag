@@ -389,6 +389,8 @@ That means the next follow-up work should narrow to:
 2. benchmark the new router/support thresholds and stricter final acceptance gate against Amazon and the stable regression suites
 3. inspect any remaining Amazon misses with the richer QA trace before deciding whether the next fix belongs in answer postprocessing or citation selection
 
+The benchmark tooling now also captures structured per-failure QA traces in saved eval artifacts, including router decisions, verification/postprocess state, retrieved/cited contexts, timings, and prompt snapshots. That means Amazon and other structured-evidence misses no longer need to be debugged only through ad hoc reruns.
+
 The latest implementation follow-up for that slice should now be:
 
 1. use the richer QA trace fields to inspect router support scores, unsupported-classifier decisions, question-coverage scores, and repair outcomes on each benchmark miss

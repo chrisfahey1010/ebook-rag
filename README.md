@@ -301,7 +301,7 @@ uv run python scripts/run_eval.py \
   --fail-on-regression
 ```
 
-The expanded summary now includes unsupported precision plus P50/P95 latency so retrieval and citation changes can be compared over time.
+The expanded summary now includes unsupported precision plus P50/P95 latency so retrieval and citation changes can be compared over time. Failing questions also now carry a `failure_trace` payload in the saved JSON artifact, and the Markdown report surfaces the routed answer mode, router/support signals, and repair decisions for each miss. That makes `amazon_earnings`-style structured-evidence failures easier to inspect without rerunning the benchmark interactively.
 
 If you want the current project plan rather than the benchmark mechanics, see [`IMPLEMENTATION_PLAN.md`](/home/chris/repos/ebook-rag/IMPLEMENTATION_PLAN.md). The short version is: stop open-ended retrieval tuning, lock down one truthful baseline, and make grounded local-model-backed answering the next major quality milestone.
 

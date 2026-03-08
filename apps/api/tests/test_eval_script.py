@@ -119,6 +119,11 @@ def test_summarize_results_includes_percentiles_and_unsupported_precision() -> N
     assert summary["latency_p95_ms"] == 48.0
     assert summary["predicted_unsupported_count"] == 2
     assert summary["expected_unsupported_count"] == 1
+    assert summary["failure_count"] == 1
+    assert summary["gating_failure_count"] == 0
+    assert summary["exploratory_failure_count"] == 1
+    assert len(summary["failure_results"]) == 1
+    assert summary["failure_results"][0]["question"] == "What happens after landing?"
 
 
 def test_compare_summaries_flags_quality_and_latency_regressions() -> None:
@@ -248,6 +253,7 @@ def test_regression_suite_markdown_lists_regressions() -> None:
                     "answer_match_rate": 0.9,
                     "unsupported_precision": 1.0,
                     "average_latency_ms": 25.0,
+                    "failure_count": 2,
                 },
             }
         ],
@@ -255,6 +261,7 @@ def test_regression_suite_markdown_lists_regressions() -> None:
 
     assert "compare-to-baseline" in report
     assert "retrieval_hit_rate, latency_p95_ms" in report
+    assert "Failure traces captured: `2`" in report
 
 
 def test_render_markdown_report_includes_comparison_and_failures() -> None:
@@ -283,6 +290,9 @@ def test_render_markdown_report_includes_comparison_and_failures() -> None:
         "average_latency_ms": 20.0,
         "latency_p50_ms": 20.0,
         "latency_p95_ms": 28.0,
+        "failure_count": 1,
+        "gating_failure_count": 0,
+        "exploratory_failure_count": 1,
         "document_summaries": [
             {
                 "document": "manual.pdf",
@@ -321,6 +331,42 @@ def test_render_markdown_report_includes_comparison_and_failures() -> None:
                 "answer_hit": False,
                 "expected_citation_text_contains": ["cooling lines"],
                 "latency_ms": 28.0,
+                "answer_mode": "unsupported",
+                "router_answer_mode": "synthesis",
+                "router_heuristic_support_score": 0.42,
+                "question_coverage_score": 0.2,
+                "repair_attempted": True,
+                "repair_applied": False,
+                "unsupported_classifier_reason": "Evidence did not support the requested metric.",
+                "repair_reason": "No fully supported claims remained.",
+                "failure_trace": {
+                    "answer_mode": "unsupported",
+                },
+            }
+        ],
+        "failure_results": [
+            {
+                "document": "manual.pdf",
+                "question": "What happens before launch?",
+                "regression_tier": "exploratory",
+                "retrieval_hit": False,
+                "citation_hit": True,
+                "citation_text_hit": False,
+                "support_hit": False,
+                "answer_hit": False,
+                "expected_citation_text_contains": ["cooling lines"],
+                "latency_ms": 28.0,
+                "answer_mode": "unsupported",
+                "router_answer_mode": "synthesis",
+                "router_heuristic_support_score": 0.42,
+                "question_coverage_score": 0.2,
+                "repair_attempted": True,
+                "repair_applied": False,
+                "unsupported_classifier_reason": "Evidence did not support the requested metric.",
+                "repair_reason": "No fully supported claims remained.",
+                "failure_trace": {
+                    "answer_mode": "unsupported",
+                },
             }
         ],
     }
@@ -334,9 +380,64 @@ def test_render_markdown_report_includes_comparison_and_failures() -> None:
     assert "retrieval_hit_rate: `-0.250`" in report
     assert "citation_evidence_hit_rate: `-0.500`" in report
     assert "latency_p95_ms: `+8.000 ms`" in report
+    assert "Failure count: `1`" in report
+    assert "Exploratory failure count: `1`" in report
     assert "manual.pdf :: What happens before launch?" in report
     assert "citation_text=False" in report
     assert "answer=False" in report
+    assert "trace: answer_mode=unsupported, router=synthesis" in report
+    assert "unsupported_classifier_reason: Evidence did not support the requested metric." in report
+    assert "repair_reason: No fully supported claims remained." in report
+
+
+def test_build_failure_trace_keeps_router_verification_and_context_details() -> None:
+    run_eval = load_run_eval_module()
+
+    payload = {
+        "normalized_question": "what happened?",
+        "answer": "Unsupported.",
+        "supported": False,
+        "answer_mode": "unsupported",
+        "confidence": 0.1,
+        "support_score": 0.2,
+        "verification": {"verified": False, "claim_count": 1},
+        "citations": [{"chunk_id": "chunk-1"}],
+    }
+    trace = {
+        "question_router": {"answer_mode": "unsupported", "reason": "insufficient evidence"},
+        "runtime": {"answer_provider": "extractive"},
+        "postprocess": {"repair_attempted": True},
+        "retrieved_chunks": [{"chunk_id": "retrieved-1"}],
+        "selected_contexts": [{"chunk_id": "selected-1"}],
+        "cited_contexts": [{"chunk_id": "cited-1"}],
+        "timings": {"total_ms": 12.0},
+        "prompt_snapshot": "Question: what happened?",
+    }
+
+    failure_trace = run_eval.build_failure_trace(payload=payload, trace=trace)
+
+    assert failure_trace["answer_mode"] == "unsupported"
+    assert failure_trace["verification"]["verified"] is False
+    assert failure_trace["question_router"]["reason"] == "insufficient evidence"
+    assert failure_trace["retrieved_chunks"][0]["chunk_id"] == "retrieved-1"
+    assert failure_trace["prompt_snapshot"] == "Question: what happened?"
+
+
+def test_question_result_failed_requires_all_quality_checks_to_pass() -> None:
+    run_eval = load_run_eval_module()
+
+    passing_result = {
+        "retrieval_hit": True,
+        "citation_hit": True,
+        "citation_text_hit": True,
+        "support_hit": True,
+        "answer_hit": True,
+    }
+    failing_result = dict(passing_result)
+    failing_result["citation_text_hit"] = False
+
+    assert run_eval.question_result_failed(passing_result) is False
+    assert run_eval.question_result_failed(failing_result) is True
 
 
 def test_text_expectation_hit_normalizes_excerpt_spacing_and_punctuation() -> None:
